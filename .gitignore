@@ -1,0 +1,12 @@
+node_modules/
+dist/
+electron-dist/
+release/
+*.local
+*.log
+.DS_Store
+Thumbs.db
+scripts/run-checks.log
+
+# Données générées par l'import (regénérables depuis history/)
+src/features/import/hands/
