@@ -2,6 +2,13 @@ node_modules/
 dist/
 electron-dist/
 release/
+
+# Outillage d'édition et notes de planification, pas l'application
+.cursor/
+.claude/
+_bmad/
+_bmad-output/
+brainstorming/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
