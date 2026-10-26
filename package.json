@@ -1,6 +1,8 @@
 {
   "name": "projet-pok",
   "private": true,
+  "description": "Coach poker local pour revoir ses tournois",
+  "author": "Projet-pok",
   "version": "0.1.0",
   "main": "electron-dist/main.js",
   "scripts": {
@@ -21,6 +23,7 @@
     "directories": {
       "output": "release"
     },
+    "afterPack": "scripts/set-exe-icon.cjs",
     "files": [
       "dist/**/*",
       "electron-dist/**/*",
@@ -31,10 +34,13 @@
       "!node_modules/@node-llama-cpp/win-arm64/**"
     ],
     "asarUnpack": [
+      "electron-dist/**/*",
       "node_modules/node-llama-cpp/**/*",
       "node_modules/@node-llama-cpp/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",
@@ -52,6 +58,7 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "Projet-pok"

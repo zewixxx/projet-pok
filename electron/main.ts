@@ -46,7 +46,7 @@ function createWindow(): void {
     // Barre de menus masquée (Alt la fait apparaître) : l'application a sa propre navigation.
     autoHideMenuBar: true,
     // Même fond que l'interface, pour éviter tout flash avant le premier affichage.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#080c15" : "#f1f4fa",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#070b0a" : "#f3f0e8",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import path from "path";
 import { WorkerPool } from "../analysis/pool";
 import type { IngestStats } from "../ingest/dataset";
@@ -10,9 +11,14 @@ export interface ParseResult {
   unavailable?: string[];
 }
 
-/** Le worker compilé se trouve à côté de ce fichier : electron-dist/analysis/worker.js */
+/**
+ * Le worker compilé se trouve à côté de ce fichier : electron-dist/analysis/worker.js.
+ * Dans l'installeur, il est hors de l'archive asar, sinon Node ne peut pas le lancer.
+ */
 export function workerFilePath(): string {
-  return path.join(__dirname, "..", "analysis", "worker.js");
+  const packed = path.join(__dirname, "..", "analysis", "worker.js");
+  const unpacked = packed.replace("app.asar", "app.asar.unpacked");
+  return unpacked !== packed && existsSync(unpacked) ? unpacked : packed;
 }
 
 /**
