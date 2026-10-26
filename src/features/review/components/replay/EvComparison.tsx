@@ -1,14 +1,15 @@
 import { useMemo } from "react";
-import type { EvComparison as EvComparisonType, EvOption, Street } from "../../replay.types";
+import { Badge } from "../../../../ui/Badge";
+import { cx } from "../../../../ui/cx";
+import { fmtBbAuto, fmtBbSigned } from "../../../../ui/format";
+import { Crown, ThumbsUp } from "../../../../ui/icons";
+import { Term } from "../../../../ui/Term";
 import { ACTION_LABELS, STREET_LABELS } from "../../replay.constants";
+import type { EvComparison as EvComparisonType, EvOption, Street } from "../../replay.types";
 
-function formatOptionLabel(option: EvOption): string {
+function optionLabel(option: EvOption): string {
   const base = ACTION_LABELS[option.type] ?? option.type;
-  return option.amountBb != null ? `${base} ${option.amountBb.toFixed(1)} bb` : base;
-}
-
-function formatEv(evBb: number): string {
-  return `${evBb >= 0 ? "+" : ""}${evBb.toFixed(2)} bb`;
+  return option.amountBb != null ? `${base} ${fmtBbAuto(option.amountBb)}` : base;
 }
 
 interface EvComparisonProps {
@@ -16,95 +17,69 @@ interface EvComparisonProps {
   street: Street;
 }
 
+/** Barres divergentes autour de zéro : à droite ce qui rapporte, à gauche ce qui coûte. */
 export function EvComparison({ comparison, street }: EvComparisonProps) {
-  const sorted = useMemo(
-    () => [...comparison.options].sort((a, b) => b.evBb - a.evBb),
-    [comparison.options],
-  );
+  const sorted = useMemo(() => [...comparison.options].sort((a, b) => b.evBb - a.evBb), [comparison.options]);
 
-  const playedOption = sorted.find((o) => o.isPlayed);
-  const bestOption   = sorted[0];
-  const maxAbsEv     = Math.max(...sorted.map((o) => Math.abs(o.evBb)), 0.01);
+  const played = sorted.find((o) => o.isPlayed);
+  const best = sorted[0];
+  const isOptimal = !played || played.evBb === best?.evBb;
 
-  const isOptimalPlay = playedOption?.evBb === bestOption?.evBb;
+  const { min, max } = useMemo(() => {
+    const values = sorted.map((o) => o.evBb);
+    return { min: Math.min(0, ...values), max: Math.max(0, ...values) };
+  }, [sorted]);
+  const range = max - min || 1;
+  const zero = (-min / range) * 100;
 
   return (
-    <div className="ev-comparison ev-comparison--fill">
-      <div className="ev-comparison__header">
-        <span className="ev-comparison__title">Comparatif EV</span>
-        <span className="ev-comparison__street">{STREET_LABELS[street]}</span>
-        {isOptimalPlay ? (
-          <span className="ev-comparison__verdict ev-comparison__verdict--optimal">
-            🌟 Meilleur choix
-          </span>
-        ) : (
-          <span className="ev-comparison__verdict ev-comparison__verdict--subopt">
-            💡 Autre option meilleure
-          </span>
-        )}
-      </div>
+    <section className="ev" aria-label="Comparaison des options">
+      <header className="ev__head">
+        <h3 className="ev__title">
+          Comparaison des options <span className="ev__street">· {STREET_LABELS[street]}</span>
+        </h3>
+        <p className="ev__sub">
+          Gain moyen estimé (<Term id="ev">EV</Term>) de chaque action possible.
+        </p>
+      </header>
 
-      <div className="ev-comparison__rows">
+      <ul className="ev__rows">
         {sorted.map((option, i) => {
-          const isPlayed  = Boolean(option.isPlayed);
-          const isBest    = i === 0;
-          const delta     = playedOption != null ? option.evBb - playedOption.evBb : 0;
-          const barPct    = Math.max(4, (Math.abs(option.evBb) / maxAbsEv) * 100);
-          const isPositive = option.evBb >= 0;
-
-          const rowClass = [
-            "ev-comparison__row",
-            isPlayed ? "ev-comparison__row--played" : "",
-            isBest && !isPlayed ? "ev-comparison__row--best" : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
-
+          const isPlayed = Boolean(option.isPlayed);
+          const isBest = i === 0;
+          const width = (Math.abs(option.evBb) / range) * 100;
+          const left = option.evBb >= 0 ? zero : zero - width;
           return (
-            <div key={i} className={rowClass}>
-              {/* Label */}
-              <span className="ev-comparison__label">{formatOptionLabel(option)}</span>
-
-              {/* Bar */}
-              <div className="ev-comparison__bar-track" aria-hidden="true">
-                <div
-                  className={[
-                    "ev-comparison__bar",
-                    isPositive ? "ev-comparison__bar--pos" : "ev-comparison__bar--neg",
-                  ].join(" ")}
-                  style={{ width: `${barPct}%` }}
-                />
-              </div>
-
-              {/* EV value */}
-              <span
-                className={[
-                  "ev-comparison__ev",
-                  isPositive ? "ev-comparison__ev--pos" : "ev-comparison__ev--neg",
-                ].join(" ")}
-              >
-                {formatEv(option.evBb)}
+            <li key={`${option.type}-${option.amountBb ?? "x"}-${i}`} className={cx("ev__row", isPlayed && "is-played", isBest && "is-best")}>
+              <span className="ev__who">
+                <span className="ev__label">{optionLabel(option)}</span>
+                {(isBest || isPlayed) && (
+                  <span className="ev__tags">
+                    {isBest && (
+                      <Badge tone="pos">
+                        <Crown size={11} aria-hidden /> Meilleur
+                      </Badge>
+                    )}
+                    {isPlayed && (
+                      <Badge tone={isOptimal ? "pos" : "brand"}>
+                        {isOptimal ? <ThumbsUp size={11} aria-hidden /> : null} Ton choix
+                      </Badge>
+                    )}
+                  </span>
+                )}
               </span>
-
-              {/* Tag / delta */}
-              {isPlayed && isBest && (
-                <span className="ev-comparison__tag ev-comparison__tag--optimal">🌟 Ton choix · Top</span>
-              )}
-              {isPlayed && !isBest && (
-                <span className="ev-comparison__tag ev-comparison__tag--played">👉 Ton choix</span>
-              )}
-              {!isPlayed && isBest && (
-                <span className="ev-comparison__tag ev-comparison__tag--best">⭐ Meilleur</span>
-              )}
-              {!isPlayed && !isBest && (
-                <span className={`ev-comparison__delta ${delta >= 0 ? "ev-comparison__delta--pos" : "ev-comparison__delta--neg"}`}>
-                  {delta >= 0 ? "+" : ""}{delta.toFixed(2)}
-                </span>
-              )}
-            </div>
+              <span className="ev__chart" aria-hidden>
+                <span className="ev__zero" style={{ left: `${zero}%` }} />
+                <span
+                  className={cx("ev__bar", option.evBb >= 0 ? "ev__bar--pos" : "ev__bar--neg")}
+                  style={{ left: `${left}%`, width: `${Math.max(width, 1.5)}%` }}
+                />
+              </span>
+              <span className={cx("ev__value", "num", option.evBb >= 0 ? "pos" : "neg")}>{fmtBbSigned(option.evBb)}</span>
+            </li>
           );
         })}
-      </div>
-    </div>
+      </ul>
+    </section>
   );
 }

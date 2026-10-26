@@ -30,6 +30,36 @@ export interface CoachTip {
   headline: string;
   detail: string;
   evDiffBb?: number;
+  /** « moteur » : texte du moteur de calcul. « ia » : reformulé par l'IA locale. */
+  source?: "moteur" | "ia";
+}
+
+export type MistakeKind =
+  | "overfold"
+  | "overcall"
+  | "passive-call"
+  | "missed-bet"
+  | "overaggression"
+  | "sizing";
+
+/** Ce que le moteur d'analyse a retenu d'un spot du héros. */
+export interface SpotInsight {
+  kind: MistakeKind | "correct";
+  street: Street;
+  heroPosition: string;
+  equityPct: number;
+  potOddsPct?: number;
+  potBb: number;
+  toCallBb: number;
+  stackBb: number;
+  villainId?: string;
+  villainPosition?: string;
+  /** Probabilité 0-1 de chaque main (« AKs », « 72o ») dans la range estimée. */
+  villainRange?: Record<string, number>;
+  villainRangeLabel?: string;
+  villainRangePct?: string;
+  confidence: "haute" | "moyenne" | "faible";
+  evLossBb: number;
 }
 
 /** One candidate action with its expected value */
@@ -51,6 +81,8 @@ export interface ReplayHand {
   id: string;
   label: string;
   blindsBb: { small: number; big: number };
+  /** Ante par joueur, en bb. */
+  anteBb?: number;
   players: ReplayPlayer[];
   actions: HandAction[];
   boards: StreetBoard[];
@@ -58,6 +90,10 @@ export interface ReplayHand {
   coachTips?: Record<number, CoachTip>;
   /** Keyed by action index (0-based) */
   evComparisons?: Record<number, EvComparison>;
+  /** Vrai quand le moteur a analysé cette main : pas de repli sur de fausses analyses. */
+  analyzed?: boolean;
+  /** Clé : index d'action du héros. */
+  spots?: Record<number, SpotInsight>;
 }
 
 /** Player enriched with runtime state for the current replay snapshot */

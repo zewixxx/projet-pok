@@ -109,6 +109,8 @@ export function resolveHeroAnalysis(
   if (bakedTip || bakedEv) {
     return { tip: bakedTip, ev: bakedEv };
   }
+  // Main analysée par le moteur : jamais de fausse analyse pour les spots sans conseil.
+  if (hand.analyzed) return {};
 
   const action = hand.actions[actionIndex];
   const hero   = hand.players.find(p => p.isHero);

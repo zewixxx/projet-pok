@@ -11,6 +11,9 @@ export interface Tournament {
   prizeEuros?: number;
   /** IDs of the ReplayHand entries belonging to this tournament */
   handIds: string[];
+  /** Renseigné pour les tournois réels : le moteur a déjà analysé ce tournoi. */
+  analyzed?: boolean;
+  mistakes?: number;
 }
 
 export function getPlaceCategory(place: number, totalPlayers: number): PlaceCategory {

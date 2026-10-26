@@ -22,7 +22,7 @@ export interface LeakReviewPayload {
 /** BB overfold vs c-bet — Hero fold trop souvent */
 const HAND_OVERFOLD_BB: ReplayHand = {
   id: "leak-overfold-bb",
-  label: "Fuite #1 — Overfold BB vs c-bet",
+  label: "Exemple 1 — tu te couches trop en grosse blinde",
   blindsBb: { small: 0.5, big: 1 },
   players: [
     { id: "btn", name: "Vilain", stackBb: 40, seatIndex: 0, position: "BTN" },
@@ -41,9 +41,9 @@ const HAND_OVERFOLD_BB: ReplayHand = {
   coachTips: {
     5: {
       quality: "mistake",
-      headline: "Tu folds trop souvent ici",
+      headline: "Tu te couches trop souvent ici",
       detail:
-        "Avec J9s sur T72 rainbow, tu as un draw + overcards. Fold ~68% alors que l’optimal est ~52%. Continuer (call) gagne de l’EV.",
+        "Valet-neuf de cœur sur 10-7-2 : tu as un tirage et deux cartes plus hautes que le tableau. Suivre rapporte plus que de te coucher.",
       evDiffBb: -0.35,
     },
   },
@@ -61,7 +61,7 @@ const HAND_OVERFOLD_BB: ReplayHand = {
 /** Call loose SB vs BTN open */
 const HAND_LOOSE_SB: ReplayHand = {
   id: "leak-loose-sb",
-  label: "Fuite #2 — Call trop loose SB",
+  label: "Exemple 2 — tu suis trop large en petite blinde",
   blindsBb: { small: 0.5, big: 1 },
   players: [
     { id: "btn", name: "Vilain", stackBb: 45, seatIndex: 0, position: "BTN" },
@@ -77,9 +77,9 @@ const HAND_LOOSE_SB: ReplayHand = {
   coachTips: {
     1: {
       quality: "mistake",
-      headline: "K8o hors de position = call trop large",
+      headline: "Roi-huit est trop faible pour suivre ici",
       detail:
-        "Face à un open BTN, en SB tu es mal placé. Fold ou 3bet sélectif — call avec K8o te fait perdre ~2.8 bb/100 sur ce spot.",
+        "En petite blinde, face à une relance du bouton, tu parles en premier après le flop. Couche cette main, ou relance seulement avec mieux.",
       evDiffBb: -0.28,
     },
   },
@@ -97,7 +97,7 @@ const HAND_LOOSE_SB: ReplayHand = {
 /** Underbluff river IP */
 const HAND_UNDERBLUFF: ReplayHand = {
   id: "leak-underbluff",
-  label: "Fuite #3 — Underbluff river",
+  label: "Exemple 3 — tu bluffes trop peu à la river",
   blindsBb: { small: 0.5, big: 1 },
   players: [
     { id: "bb", name: "Vilain", stackBb: 50, seatIndex: 0, position: "BB" },
@@ -123,9 +123,9 @@ const HAND_UNDERBLUFF: ReplayHand = {
   coachTips: {
     9: {
       quality: "mistake",
-      headline: "Tu bluffes trop peu river",
+      headline: "Tu bluffes trop peu à la river",
       detail:
-        "Avec A-high air après c-bet + barrel, une mise river à ~60% pot bluffe assez souvent. Check ici = underbluff (14% vs 28% optimal).",
+        "Tu as misé au flop et au turn sans rien. À la river, une mise d'environ la moitié du pot fait souvent coucher l'adversaire. Checker abandonne ce coup.",
       evDiffBb: -0.4,
     },
   },
@@ -142,7 +142,7 @@ const HAND_UNDERBLUFF: ReplayHand = {
 /** Bubble too tight */
 const HAND_BUBBLE: ReplayHand = {
   id: "leak-bubble-tight",
-  label: "Fuite #4 — Trop tight bulle",
+  label: "Exemple 4 — tu te couches trop à la bulle",
   blindsBb: { small: 0.5, big: 1 },
   players: [
     { id: "utg", name: "Short", stackBb: 8, seatIndex: 0, position: "UTG" },
@@ -160,9 +160,9 @@ const HAND_BUBBLE: ReplayHand = {
   coachTips: {
     2: {
       quality: "mistake",
-      headline: "ATs BTN bulle = open +EV",
+      headline: "As-dix au bouton se relance, même à la bulle",
       detail:
-        "À 18 bb, ATs en BTN est un open standard même bulle. Fold ici laisse ~0.8 bb EV sur la table. Les stacks courts derrière te donnent de la pression.",
+        "Avec 18 grosses blindes au bouton, as-dix assorti est une relance rentable. Te coucher laisse de l'argent, surtout si les petits tapis sont derrière toi.",
       evDiffBb: -0.8,
     },
   },
@@ -179,7 +179,7 @@ const HAND_BUBBLE: ReplayHand = {
 /** C-bet sizing too small */
 const HAND_CBET_SIZE: ReplayHand = {
   id: "leak-cbet-size",
-  label: "Fuite #5 — C-bet trop petit",
+  label: "Exemple 5 — ta mise de continuation est trop petite",
   blindsBb: { small: 0.5, big: 1 },
   players: [
     { id: "bb", name: "Vilain", stackBb: 48, seatIndex: 0, position: "BB" },
@@ -195,9 +195,9 @@ const HAND_CBET_SIZE: ReplayHand = {
   coachTips: {
     3: {
       quality: "ok",
-      headline: "Sizing trop petit sur board sec",
+      headline: "Ta mise est trop petite",
       detail:
-        "Sur K83 rainbow, un c-bet ~55% pot (≈3 bb) protège mieux et construit le pot. À 30% pot tu laisses trop de cotes de call.",
+        "Sur roi-8-3, une mise d'environ la moitié du pot protège mieux ta main. Une toute petite mise donne de trop bonnes cotes à l'adversaire.",
       evDiffBb: -0.18,
     },
   },
@@ -215,50 +215,50 @@ const HAND_CBET_SIZE: ReplayHand = {
 const LEAK_REVIEWS: Record<string, Omit<LeakReviewPayload, "leak">> = {
   l1: {
     explanation: {
-      title: "Tu folds trop en BB face au c-bet",
+      title: "Tu te couches trop en grosse blinde",
       detail:
-        "Exemple typique : J9s sur un flop T72. Tu as abandonné alors qu’un call (ou parfois un raise) est plus rentable.",
-      fix: "Continue plus souvent avec draws + overcards. Objectif : fold ≈ 52%, pas 68%.",
+        "Exemple : valet-neuf de cœur sur un flop 10-7-2. Tu abandonnes alors que suivre, ou parfois relancer, rapporte plus.",
+      fix: "Continue plus souvent avec un tirage ou deux cartes plus hautes que le tableau.",
     },
     hands: [HAND_OVERFOLD_BB],
     focusActionIndex: 5,
   },
   l2: {
     explanation: {
-      title: "Tes calls SB vs BTN sont trop larges",
+      title: "Tu suis trop large en petite blinde",
       detail:
-        "K8o hors de position face à un open bouton : tu joues un pot difficile avec une main moyenne.",
-      fix: "Folde les mains moyennes. Garde call / 3bet pour les meilleures mains de ta range SB.",
+        "Roi-huit dépareillé, hors position, face à une relance du bouton : le coup est difficile avec une main moyenne.",
+      fix: "Couche les mains moyennes. Garde suivre ou relancer pour tes meilleures mains.",
     },
     hands: [HAND_LOOSE_SB],
     focusActionIndex: 1,
   },
   l3: {
     explanation: {
-      title: "Tu bluffes trop peu river en position",
+      title: "Tu bluffes trop peu à la river",
       detail:
-        "Après avoir misé flop et turn avec de l’air, check river = tu abandonnes trop d’EV de bluff.",
-      fix: "Ajoute des bluffs river (~28% de la range) sur les boards où vilain a beaucoup de folds.",
+        "Après avoir misé au flop et au turn sans rien, checker la river abandonne des coups que l'adversaire aurait souvent couchés.",
+      fix: "Ajoute quelques bluffs à la river quand l'adversaire se couche souvent.",
     },
     hands: [HAND_UNDERBLUFF],
     focusActionIndex: 9,
   },
   l4: {
     explanation: {
-      title: "Trop tight à la bulle",
+      title: "Tu te couches trop à la bulle",
       detail:
-        "ATs en BTN à 18 bb est un open +EV. Folder laisse de l’argent sur la table, même en ICM.",
-      fix: "Ouvre un peu plus large BTN/CO quand les stacks courts sont derrière toi.",
+        "As-dix assorti au bouton, avec 18 grosses blindes, est une relance rentable. Se coucher laisse de l'argent sur la table.",
+      fix: "Ouvre un peu plus large au bouton et au cutoff quand les petits tapis sont derrière toi.",
     },
     hands: [HAND_BUBBLE],
     focusActionIndex: 2,
   },
   l5: {
     explanation: {
-      title: "C-bet trop petit sur boards secs",
+      title: "Ta mise de continuation est trop petite",
       detail:
-        "Avec QQ sur K83, un sizing 30% pot donne de trop bonnes cotes. 50–60% pot est plus standard.",
-      fix: "Sur boards secs / à hautes cartes, vise ~55% pot pour value et protection.",
+        "Avec deux dames sur roi-8-3, une petite mise donne de trop bonnes cotes à l'adversaire. Une mise d'environ la moitié du pot est plus juste.",
+      fix: "Sur un tableau sec ou avec une carte haute, mise plutôt autour de la moitié du pot.",
     },
     hands: [HAND_CBET_SIZE],
     focusActionIndex: 3,

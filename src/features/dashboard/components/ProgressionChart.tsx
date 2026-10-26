@@ -1,373 +1,256 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { cx } from "../../../ui/cx";
+import { fmtDate, fmtEuros } from "../../../ui/format";
+import { useElementSize } from "../../../ui/useElementSize";
 import type { SessionPoint } from "../types";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ProgressionChartProps {
   sessions: SessionPoint[];
+  /** Hauteur du graphique en pixels. */
+  height?: number;
 }
 
-type SerieKey = "net" | "ev" | "sd" | "nonSd";
+const PAD = { top: 18, right: 18, bottom: 30, left: 62 };
 
-interface SerieConfig {
-  key:      SerieKey;
-  label:    string;
-  color:    string;
-  getValue: (s: SessionPoint) => number;
+type Pt = readonly [number, number];
+
+/** Courbe lissée sans dépassement (interpolation monotone). */
+function monotonePath(pts: Pt[]): string {
+  const n = pts.length;
+  if (n === 0) return "";
+  if (n === 1) return `M${pts[0][0]} ${pts[0][1]}`;
+  const dx: number[] = [];
+  const m: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx.push(pts[i + 1][0] - pts[i][0]);
+    m.push((pts[i + 1][1] - pts[i][1]) / (dx[i] || 1));
+  }
+  const t: number[] = [m[0]];
+  for (let i = 1; i < n - 1; i++) {
+    t.push(m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2);
+  }
+  t.push(m[n - 2]);
+  for (let i = 0; i < n - 1; i++) {
+    if (m[i] === 0) {
+      t[i] = 0;
+      t[i + 1] = 0;
+      continue;
+    }
+    const a = t[i] / m[i];
+    const b = t[i + 1] / m[i];
+    const h = Math.hypot(a, b);
+    if (h > 3) {
+      t[i] = (3 * a * m[i]) / h;
+      t[i + 1] = (3 * b * m[i]) / h;
+    }
+  }
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const x1 = pts[i][0] + dx[i] / 3;
+    const y1 = pts[i][1] + (t[i] * dx[i]) / 3;
+    const x2 = pts[i + 1][0] - dx[i] / 3;
+    const y2 = pts[i + 1][1] - (t[i + 1] * dx[i]) / 3;
+    d += ` C${x1.toFixed(1)} ${y1.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)} ${pts[i + 1][0].toFixed(1)} ${pts[i + 1][1].toFixed(1)}`;
+  }
+  return d;
 }
 
-// ── Séries ────────────────────────────────────────────────────────────────────
-
-const SERIES: SerieConfig[] = [
-  { key: "net",   label: "Net",    color: "#c0c8d8", getValue: (s) => s.cumulEuros },
-  { key: "ev",    label: "EV",     color: "#f5a023", getValue: (s) => s.cumulEv    },
-  { key: "sd",    label: "SD",     color: "#e05252", getValue: (s) => s.cumulSd    },
-  { key: "nonSd", label: "Non-SD", color: "#29c4e0", getValue: (s) => s.cumulEuros - s.cumulSd },
-];
-
-// ── Dimensions SVG ────────────────────────────────────────────────────────────
-
-const W   = 820;
-const H   = 310;
-const PAD = { top: 36, right: 30, bottom: 52, left: 82 };
-const PW  = W - PAD.left - PAD.right;
-const PH  = H - PAD.top  - PAD.bottom;
-
-// ── Utilitaires ───────────────────────────────────────────────────────────────
-
-function fmtY(n: number): string {
-  if (Math.abs(n) >= 10_000) return `${(n / 1000).toFixed(0)}k€`;
-  if (Math.abs(n) >= 1_000)  return `${(n / 1000).toFixed(1)}k€`;
-  return `${n >= 0 ? "+" : ""}${n}€`;
+/** Graduations « rondes » (1, 2, 5 × 10ⁿ). */
+function niceTicks(min: number, max: number, target = 5): number[] {
+  const span = max - min || 1;
+  const raw = span / target;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const norm = raw / mag;
+  const step = (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
+  const ticks: number[] = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + step * 0.001; v += step) ticks.push(Number(v.toFixed(6)));
+  return ticks;
 }
 
-function fmtSessionNet(n: number): string {
-  return `${n >= 0 ? "+" : ""}${n.toLocaleString("fr-FR")}€`;
+function compactEuros(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1000) return `${n < 0 ? "\u2212" : ""}${(abs / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })}\u00a0k€`;
+  return fmtEuros(n, { digits: 0 });
 }
 
-function autoStep(range: number): number {
-  if (range <=    200) return    50;
-  if (range <=    500) return   100;
-  if (range <=   2000) return   500;
-  if (range <=   5000) return  1000;
-  if (range <=  20000) return  5000;
-  if (range <= 100000) return 10000;
-  return 20000;
-}
-
-function buildPath(
-  sessions:  SessionPoint[],
-  getValue:  (s: SessionPoint) => number,
-  yMin:      number,
-  yMax:      number,
-): string {
-  return sessions
-    .map((s, i) => {
-      const x = PAD.left + (i / Math.max(sessions.length - 1, 1)) * PW;
-      const y = PAD.top  + PH - ((getValue(s) - yMin) / (yMax - yMin)) * PH;
-      return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
-// ── Composant ─────────────────────────────────────────────────────────────────
-
-export function ProgressionChart({ sessions }: ProgressionChartProps) {
-  const [visible, setVisible] = useState<Record<SerieKey, boolean>>({
-    net: true, ev: true, sd: true, nonSd: true,
-  });
+export function ProgressionChart({ sessions, height = 290 }: ProgressionChartProps) {
+  const [wrapRef, { width }] = useElementSize<HTMLDivElement>();
   const [hovered, setHovered] = useState<number | null>(null);
+  const [showEv, setShowEv] = useState(true);
+  const uid = useId();
 
-  const toggle = (key: SerieKey) =>
-    setVisible((prev) => ({ ...prev, [key]: !prev[key] }));
+  const hasEv = useMemo(() => sessions.some((s) => Math.abs(s.cumulEv - s.cumulEuros) > 0.01), [sessions]);
+  const W = Math.max(width, 320);
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = height - PAD.top - PAD.bottom;
 
-  // ── Échelle Y + grille + big-win markers ──────────────────────────────────
+  const geometry = useMemo(() => {
+    if (sessions.length === 0) return null;
+    const values = [0, ...sessions.map((s) => s.cumulEuros)];
+    if (hasEv && showEv) values.push(...sessions.map((s) => s.cumulEv));
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+    const pad = (rawMax - rawMin || 1) * 0.12;
+    const min = rawMin - (rawMin < 0 ? pad : 0);
+    const max = rawMax + pad;
+    const x = (i: number) => PAD.left + (sessions.length === 1 ? innerW / 2 : (i / (sessions.length - 1)) * innerW);
+    const y = (v: number) => PAD.top + innerH - ((v - min) / (max - min || 1)) * innerH;
+    const net: Pt[] = sessions.map((s, i) => [x(i), y(s.cumulEuros)]);
+    const ev: Pt[] = sessions.map((s, i) => [x(i), y(s.cumulEv)]);
+    const ticks = niceTicks(min, max, Math.max(3, Math.round(innerH / 56)));
 
-  const { yMin, yMax, gridLines, bigWins } = useMemo(() => {
-    const vals: number[] = [];
-    SERIES.forEach((s) => {
-      if (visible[s.key]) sessions.forEach((pt) => vals.push(s.getValue(pt)));
-    });
-    if (!vals.length) return { yMin: 0, yMax: 1, gridLines: [], bigWins: [] };
-
-    const rawMin = Math.min(...vals);
-    const rawMax = Math.max(...vals);
-    const range  = rawMax - rawMin || 1;
-    const pad    = range * 0.10;
-    const yMinV  = rawMin - pad;
-    const yMaxV  = rawMax + pad;
-
-    const step  = autoStep(yMaxV - yMinV);
-    const start = Math.ceil(yMinV / step) * step;
-    const lines: number[] = [];
-    for (let v = start; v <= yMaxV + step * 0.5; v += step) lines.push(v);
-
-    // Marqueurs big wins (seuil = 60 % du plus gros net ou 2 000 €)
-    const maxNet    = Math.max(0, ...sessions.map((s) => s.netEuros));
-    const threshold = Math.max(2_000, maxNet * 0.55);
-    const bw = sessions
-      .map((s, i) => {
-        const x  = PAD.left + (i / Math.max(sessions.length - 1, 1)) * PW;
-        const cy = PAD.top  + PH - ((s.cumulEuros - yMinV) / (yMaxV - yMinV)) * PH;
-        return { x, cy, net: s.netEuros, name: s.label };
-      })
-      .filter((_, i) => sessions[i].netEuros >= threshold);
-
-    return { yMin: yMinV, yMax: yMaxV, gridLines: lines, bigWins: bw };
-  }, [sessions, visible]);
-
-  // ── Ticks axe X basés sur les mois ────────────────────────────────────────
-
-  const monthTicks = useMemo(() => {
-    const ticks: { x: number; label: string; isJan: boolean }[] = [];
-    let prevMonth = -1;
+    const monthTicks: Array<{ x: number; label: string }> = [];
+    let prev = -1;
     sessions.forEach((s, i) => {
       const d = new Date(s.date);
-      const m = d.getMonth() + d.getFullYear() * 12;
-      if (m !== prevMonth) {
-        prevMonth = m;
-        const x = PAD.left + (i / Math.max(sessions.length - 1, 1)) * PW;
-        ticks.push({
-          x,
-          label: d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
-          isJan: d.getMonth() === 0,
-        });
+      const key = d.getFullYear() * 12 + d.getMonth();
+      if (key !== prev) {
+        prev = key;
+        monthTicks.push({ x: x(i), label: d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }).replace(".", "") });
       }
     });
-    if (ticks.length <= 14) return ticks;
-    const step = Math.ceil(ticks.length / 13);
-    return ticks.filter((_, i) => i % step === 0);
-  }, [sessions]);
+    const maxLabels = Math.max(2, Math.floor(innerW / 78));
+    const stride = Math.ceil(monthTicks.length / maxLabels);
+    return {
+      net,
+      ev,
+      ticks,
+      y,
+      x,
+      zeroY: y(0),
+      baseY: PAD.top + innerH,
+      months: monthTicks.filter((_, i) => i % stride === 0),
+    };
+  }, [sessions, hasEv, showEv, innerW, innerH]);
 
-  // ── Ligne zéro ────────────────────────────────────────────────────────────
+  if (!geometry) {
+    return <div className="chart chart--empty">Pas encore de tournoi sur cette période.</div>;
+  }
 
-  const zeroY    = PAD.top + PH - ((0 - yMin) / (yMax - yMin)) * PH;
-  const showZero = zeroY >= PAD.top && zeroY <= PAD.top + PH;
+  const last = sessions[sessions.length - 1];
+  const positive = last.cumulEuros >= 0;
+  const tone = positive ? "var(--pos)" : "var(--neg)";
+  const linePath = monotonePath(geometry.net);
+  const areaPath = `${linePath} L${geometry.net[geometry.net.length - 1][0].toFixed(1)} ${geometry.baseY} L${geometry.net[0][0].toFixed(1)} ${geometry.baseY} Z`;
 
-  // ── Hover ─────────────────────────────────────────────────────────────────
+  const move = (clientX: number, rect: DOMRect) => {
+    if (sessions.length === 1) return setHovered(0);
+    const rel = (clientX - rect.left - PAD.left) / innerW;
+    const idx = Math.round(Math.max(0, Math.min(1, rel)) * (sessions.length - 1));
+    setHovered(idx);
+  };
 
-  const hPt = hovered !== null ? sessions[hovered] : null;
-  const hX  = hovered !== null
-    ? PAD.left + (hovered / Math.max(sessions.length - 1, 1)) * PW
-    : 0;
+  const onKey = (e: KeyboardEvent<SVGSVGElement>) => {
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setHovered((h) => Math.min((h ?? -1) + 1, sessions.length - 1));
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setHovered((h) => Math.max((h ?? sessions.length) - 1, 0));
+    } else if (e.key === "Escape") {
+      setHovered(null);
+    }
+  };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const hp = hovered != null ? sessions[hovered] : null;
+  const hx = hovered != null ? geometry.net[hovered][0] : 0;
+  const tooltipLeft = Math.min(Math.max(hx, 120), W - 120);
 
   return (
-    <div className="prog-chart">
-
-      {/* Légende */}
-      <div className="prog-chart__legend">
-        {SERIES.map((s) => (
+    <div className="chart">
+      {hasEv && (
+        <div className="chart__legend">
+          <span className="chart__key">
+            <i style={{ background: tone }} /> Résultat réel
+          </span>
           <button
-            key={s.key}
-            className={`prog-chart__leg-btn ${visible[s.key] ? "prog-chart__leg-btn--on" : "prog-chart__leg-btn--off"}`}
-            onClick={() => toggle(s.key)}
-            style={{ "--serie-color": s.color } as React.CSSProperties}
+            type="button"
+            className={cx("chart__key", "chart__key--toggle", !showEv && "is-off")}
+            aria-pressed={showEv}
+            onClick={() => setShowEv((v) => !v)}
           >
-            <span className="prog-chart__leg-swatch" />
-            <span className="prog-chart__leg-label">{s.label}</span>
+            <i className="chart__key-dash" /> Résultat ajusté (EV)
           </button>
-        ))}
-        <span className="prog-chart__count">{sessions.length} sessions</span>
-      </div>
-
-      {/* SVG */}
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        className="prog-chart__svg"
-        onMouseLeave={() => setHovered(null)}
-      >
-        <defs>
-          {SERIES.map((s) => (
-            <filter key={s.key} id={`glow-${s.key}`} x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="2" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          ))}
-        </defs>
-
-        {/* Fond zone graphe */}
-        <rect
-          x={PAD.left} y={PAD.top} width={PW} height={PH}
-          fill="#060d1a" fillOpacity="0.6" rx="2"
-        />
-
-        {/* Grille horizontale + labels Y */}
-        {gridLines.map((v) => {
-          const gy = PAD.top + PH - ((v - yMin) / (yMax - yMin)) * PH;
-          if (gy < PAD.top - 2 || gy > PAD.top + PH + 2) return null;
-          const isZeroLine = v === 0;
-          return (
-            <g key={v}>
-              <line
-                x1={PAD.left} y1={gy} x2={W - PAD.right} y2={gy}
-                stroke={isZeroLine ? "#2a4a8a" : "#1a2840"}
-                strokeWidth={isZeroLine ? "1.5" : "1"}
-                strokeDasharray={isZeroLine ? "8 3" : "4 4"}
-              />
-              <text
-                x={PAD.left - 8} y={gy + 4}
-                textAnchor="end" fontSize="10"
-                fill={isZeroLine ? "#6a9ae0" : "#5a7090"}
-                fontWeight={isZeroLine ? "600" : "400"}
-              >
-                {fmtY(v)}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Ligne zéro proéminente si non incluse dans gridLines */}
-        {showZero && !gridLines.includes(0) && (
-          <line
-            x1={PAD.left} y1={zeroY} x2={W - PAD.right} y2={zeroY}
-            stroke="#2a4a8a" strokeWidth="1.5" strokeDasharray="8 3"
-          />
-        )}
-
-        {/* Ticks axe X — mois */}
-        {monthTicks.map((t, i) => (
-          <g key={i}>
-            <line
-              x1={t.x} y1={PAD.top} x2={t.x} y2={PAD.top + PH}
-              stroke={t.isJan ? "#2a3a5a" : "#141e30"}
-              strokeWidth={t.isJan ? "1.5" : "1"}
-            />
-            <text
-              x={t.x} y={H - 8}
-              textAnchor="middle" fontSize="10"
-              fill={t.isJan ? "#9ab0d8" : "#6a80a8"}
-              fontWeight={t.isJan ? "600" : "400"}
-            >
-              {t.label}
-            </text>
-            {/* petit tick vertical */}
-            <line
-              x1={t.x} y1={PAD.top + PH} x2={t.x} y2={PAD.top + PH + 4}
-              stroke="#3a5080" strokeWidth="1"
-            />
-          </g>
-        ))}
-
-        {/* Marqueurs big wins */}
-        {bigWins.map((bw, i) => (
-          <g key={i}>
-            <line
-              x1={bw.x} y1={PAD.top} x2={bw.x} y2={PAD.top + PH}
-              stroke="#f5a023" strokeWidth="1.5" strokeDasharray="5 3" strokeOpacity="0.55"
-            />
-            <polygon
-              points={`${bw.x},${bw.cy - 3} ${bw.x - 5},${bw.cy - 12} ${bw.x + 5},${bw.cy - 12}`}
-              fill="#f5a023" fillOpacity="0.8"
-            />
-            <text
-              x={bw.x} y={PAD.top - 10}
-              textAnchor="middle" fontSize="9.5" fill="#f5a023" fontWeight="700"
-            >
-              🏆 {fmtY(bw.net)}
-            </text>
-          </g>
-        ))}
-
-        {/* Courbes (ordre inversé : non-sd en dessous, net au-dessus) */}
-        {[...SERIES].reverse().map((s) => {
-          if (!visible[s.key]) return null;
-          return (
-            <path
-              key={s.key}
-              d={buildPath(sessions, s.getValue, yMin, yMax)}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={s.key === "net" ? 2.5 : 1.8}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              strokeDasharray={
-                s.key === "ev"    ? "7 3" :
-                s.key === "nonSd" ? "3 3" : undefined
-              }
-              filter={`url(#glow-${s.key})`}
-              opacity={s.key === "net" ? 1 : 0.80}
-            />
-          );
-        })}
-
-        {/* Zones de capture hover */}
-        {sessions.map((_, i) => (
-          <rect
-            key={i}
-            x={PAD.left + (i / Math.max(sessions.length - 1, 1)) * PW - PW / (2 * sessions.length)}
-            y={PAD.top}
-            width={PW / sessions.length}
-            height={PH}
-            fill="transparent"
-            style={{ cursor: "crosshair" }}
-            onMouseEnter={() => setHovered(i)}
-          />
-        ))}
-
-        {/* Indicateurs hover */}
-        {hPt && (
-          <g>
-            <line
-              x1={hX} y1={PAD.top} x2={hX} y2={PAD.top + PH}
-              stroke="#ffffff" strokeWidth="1" strokeDasharray="3 3" strokeOpacity="0.25"
-            />
-            {SERIES.map((s) => {
-              if (!visible[s.key]) return null;
-              const val = s.getValue(hPt);
-              const cy  = PAD.top + PH - ((val - yMin) / (yMax - yMin)) * PH;
-              return (
-                <g key={s.key}>
-                  <circle cx={hX} cy={cy} r="4" fill={s.color} stroke="#060d1a" strokeWidth="2" />
-                  <circle cx={hX} cy={cy} r="8" fill="none" stroke={s.color} strokeWidth="1" strokeOpacity="0.35" />
-                </g>
-              );
-            })}
-          </g>
-        )}
-      </svg>
-
-      {/* Tooltip HTML */}
-      {hPt && (
-        <div
-          className="prog-chart__tooltip"
-          style={{ left: `calc(${((hX - PAD.left) / PW) * 100}% + ${PAD.left}px)` }}
-        >
-          <div className="prog-chart__tt-date">
-            {new Date(hPt.date).toLocaleDateString("fr-FR", {
-              weekday: "short", day: "numeric", month: "long", year: "numeric",
-            })}
-          </div>
-          <div className="prog-chart__tt-name">{hPt.label}</div>
-          <div
-            className="prog-chart__tt-session-net"
-            style={{ color: hPt.netEuros >= 0 ? "#4cde80" : "#e05252" }}
-          >
-            Session : {fmtSessionNet(hPt.netEuros)}
-          </div>
-          {SERIES.map((s) => {
-            if (!visible[s.key]) return null;
-            const val = s.getValue(hPt);
-            return (
-              <div key={s.key} className="prog-chart__tt-row" style={{ color: s.color }}>
-                <span className="prog-chart__tt-serie">{s.label}</span>
-                <span className="prog-chart__tt-val">
-                  {val >= 0 ? "+" : ""}{val.toLocaleString("fr-FR")}€
-                </span>
-              </div>
-            );
-          })}
-          <div className="prog-chart__tt-place">
-            #{hPt.place.toLocaleString("fr-FR")} / {hPt.total.toLocaleString("fr-FR")} joueurs
-            &nbsp;·&nbsp; {hPt.hands} mains
-          </div>
         </div>
       )}
+
+      <div className="chart__wrap" ref={wrapRef} style={{ height }}>
+        <svg
+          width={W}
+          height={height}
+          viewBox={`0 0 ${W} ${height}`}
+          role="img"
+          tabIndex={0}
+          aria-label={`Courbe de résultat cumulé sur ${sessions.length} tournois, de ${fmtEuros(0)} à ${fmtEuros(last.cumulEuros)}. Utilise les flèches pour parcourir les tournois.`}
+          onMouseMove={(e) => move(e.clientX, e.currentTarget.getBoundingClientRect())}
+          onMouseLeave={() => setHovered(null)}
+          onKeyDown={onKey}
+          onBlur={() => setHovered(null)}
+        >
+          <defs>
+            <linearGradient id={`${uid}-area`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={tone} stopOpacity="0.28" />
+              <stop offset="100%" stopColor={tone} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
+          {geometry.ticks.map((v) => (
+            <g key={v}>
+              <line
+                x1={PAD.left}
+                x2={W - PAD.right}
+                y1={geometry.y(v)}
+                y2={geometry.y(v)}
+                className={cx("chart__grid", v === 0 && "chart__grid--zero")}
+              />
+              <text x={PAD.left - 10} y={geometry.y(v) + 4} textAnchor="end" className="chart__tick">
+                {compactEuros(v)}
+              </text>
+            </g>
+          ))}
+
+          {geometry.months.map((m) => (
+            <text key={m.x} x={m.x} y={height - 8} textAnchor="middle" className="chart__tick">
+              {m.label}
+            </text>
+          ))}
+
+          <path d={areaPath} fill={`url(#${uid}-area)`} />
+          {hasEv && showEv && <path d={monotonePath(geometry.ev)} className="chart__line chart__line--ev" />}
+          <path d={linePath} className="chart__line" style={{ stroke: tone }} />
+
+          {sessions.length <= 40 &&
+            geometry.net.map(([px, py], i) => (
+              <circle key={i} cx={px} cy={py} r={2.6} className="chart__dot" style={{ fill: tone }} />
+            ))}
+
+          {hp && (
+            <g>
+              <line x1={hx} x2={hx} y1={PAD.top} y2={geometry.baseY} className="chart__guide" />
+              <circle cx={hx} cy={geometry.net[hovered!][1]} r={6} className="chart__halo" style={{ fill: tone }} />
+              <circle cx={hx} cy={geometry.net[hovered!][1]} r={3.5} className="chart__point" />
+            </g>
+          )}
+        </svg>
+
+        {hp && (
+          <div className="chart__tooltip" style={{ left: tooltipLeft }} role="status">
+            <span className="chart__tt-date">{fmtDate(hp.date)}</span>
+            <strong className="chart__tt-name">{hp.label}</strong>
+            <span className={cx("chart__tt-net", "num", hp.netEuros >= 0 ? "pos" : "neg")}>
+              {fmtEuros(hp.netEuros, { sign: true })} <small>sur ce tournoi</small>
+            </span>
+            <span className="chart__tt-row">
+              Cumul <b className="num">{fmtEuros(hp.cumulEuros, { sign: true })}</b>
+            </span>
+            {hp.place > 0 && (
+              <span className="chart__tt-row">
+                Place <b className="num">{hp.place.toLocaleString("fr-FR")}</b> / {hp.total.toLocaleString("fr-FR")}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

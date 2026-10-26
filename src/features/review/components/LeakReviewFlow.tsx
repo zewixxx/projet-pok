@@ -1,23 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
+import { Badge, type Tone } from "../../../ui/Badge";
+import { Button } from "../../../ui/Button";
+import { Card } from "../../../ui/Card";
+import { cx } from "../../../ui/cx";
+import { ArrowRight, Check, ChevronLeft, ChevronRight } from "../../../ui/icons";
+import { detectRangeSpot } from "../data/rangeDetection";
 import type { LeakReviewPayload } from "../../dashboard/data/leakReviews";
-import { STREET_LABELS_UPPER } from "../replay.constants";
 import { useActionBadges } from "../hooks/useActionBadges";
 import { useReplay } from "../hooks/useReplay";
-import { detectRangeSpot } from "../data/rangeDetection";
 import { ActionFeed } from "./replay/ActionFeed";
 import { AnalysisPanel } from "./replay/AnalysisPanel";
-import { HeroHandDisplay } from "./replay/HeroHandDisplay";
-import { ReplayTableScene } from "./replay/ReplayTableScene";
+import { PokerCard } from "./replay/PokerCard";
 import RangePanel from "./replay/RangePanel";
+import { ReplayTableScene } from "./replay/ReplayTableScene";
 
 type LeakStep = "table" | "analyse" | "ranges";
 
-const STEPS: LeakStep[] = ["table", "analyse", "ranges"];
+const STEPS: ReadonlyArray<{ id: LeakStep; label: string }> = [
+  { id: "table", label: "La main" },
+  { id: "analyse", label: "L'analyse" },
+  { id: "ranges", label: "Les ranges" },
+];
 
-const STEP_LABELS: Record<LeakStep, string> = {
-  table: "1 · La main",
-  analyse: "2 · L’analyse",
-  ranges: "3 · Les ranges",
+const SEVERITY: Record<LeakReviewPayload["leak"]["severity"], { label: string; tone: Tone }> = {
+  critical: { label: "Critique", tone: "neg" },
+  major: { label: "Important", tone: "warn" },
+  minor: { label: "Mineur", tone: "info" },
 };
 
 interface LeakReviewFlowProps {
@@ -28,260 +36,156 @@ interface LeakReviewFlowProps {
   nextLeakLabel?: string;
 }
 
-export default function LeakReviewFlow({
-  payload,
-  onExit,
-  onNextLeak,
-  hasNextLeak = false,
-  nextLeakLabel,
-}: LeakReviewFlowProps) {
+/** Parcours guidé d'une fuite (exemple de démonstration) : la main, l'analyse, les ranges. */
+export default function LeakReviewFlow({ payload, onExit, onNextLeak, hasNextLeak = false, nextLeakLabel }: LeakReviewFlowProps) {
   const [step, setStep] = useState<LeakStep>("table");
 
   useEffect(() => {
     setStep("table");
   }, [payload.leak.id]);
 
-  const [snapshot, controls] = useReplay(payload.hands, {
-    initialHandIndex: 0,
-    initialActionIndex: 0,
-  });
-
-  const {
-    hand,
-    actionIndex,
-    currentAction,
-    street,
-    visibleBoard,
-    pot,
-    players,
-    currentTip,
-    currentEvComparison,
-    isHeroDecision,
-    isFirstAction,
-    isLastAction,
-  } = snapshot;
+  const [snapshot, controls] = useReplay(payload.hands, { initialHandIndex: 0, initialActionIndex: 0 });
+  const { hand, actionIndex, currentAction, street, visibleBoard, pot, players, currentTip, currentEvComparison, isHeroDecision, isFirstAction, isLastAction } = snapshot;
 
   const actor = players.find((p) => p.id === currentAction.playerId);
   const actionBadges = useActionBadges(currentAction);
-  const rangeContext = useMemo(
-    () => detectRangeSpot(hand, actionIndex, players),
-    [hand, actionIndex, players],
-  );
-
-  const hero = players.find((p) => p.isHero);
+  const rangeContext = useMemo(() => detectRangeSpot(hand, actionIndex, players), [hand, actionIndex, players]);
   const heroCards = hand.players.find((p) => p.isHero)?.holeCards;
   const atFocusSpot = actionIndex === payload.focusActionIndex;
 
-  const stepIndex = STEPS.indexOf(step);
-  const isLast = step === "ranges";
+  const stepIndex = STEPS.findIndex((s) => s.id === step);
+  const isLast = stepIndex === STEPS.length - 1;
+  const severity = SEVERITY[payload.leak.severity];
 
   const goNext = () => {
-    if (step === "table") {
-      controls.goToAction(payload.focusActionIndex);
-    }
-    if (!isLast) setStep(STEPS[stepIndex + 1]);
+    if (step === "table") controls.goToAction(payload.focusActionIndex);
+    if (!isLast) setStep(STEPS[stepIndex + 1].id);
   };
-
-  const goPrev = () => {
-    if (stepIndex <= 0) return;
-    setStep(STEPS[stepIndex - 1]);
-  };
-
-  const severityLabel =
-    payload.leak.severity === "critical"
-      ? "Critique"
-      : payload.leak.severity === "major"
-        ? "Majeur"
-        : "Mineur";
 
   return (
-    <section className="leak-flow" aria-label="Review fuite étape par étape">
-      <header className="leak-flow__header">
-        <div className="leak-flow__header-main">
+    <section className="leak-flow" aria-label="Parcours d'une fuite">
+      <header className="leak-flow__head">
+        <div>
           <p className="leak-flow__kicker">
-            Review fuite · {payload.leak.category} · {severityLabel}
+            <Badge tone={severity.tone}>{severity.label}</Badge>
+            <span>Fuite · {payload.leak.category}</span>
+            <Badge tone="warn">Exemple de démonstration</Badge>
           </p>
-          <h2 className="leak-flow__title">{payload.explanation.title}</h2>
+          <h1 className="leak-flow__title">{payload.explanation.title}</h1>
         </div>
-        <button type="button" className="leak-flow__exit" onClick={onExit}>
-          ← Retour score
-        </button>
+        <Button variant="ghost" icon={<ChevronLeft size={16} aria-hidden />} onClick={onExit}>
+          Retour à l'accueil
+        </Button>
       </header>
 
-      <nav className="leak-flow__steps" aria-label="Étapes">
+      <ol className="stepper" aria-label="Étapes">
         {STEPS.map((s, i) => (
-          <button
-            key={s}
-            type="button"
-            className={[
-              "leak-flow__step",
-              s === step ? "leak-flow__step--active" : "",
-              i < stepIndex ? "leak-flow__step--done" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => {
-              if (i > stepIndex) return;
-              if (s === "analyse" || s === "ranges") {
-                controls.goToAction(payload.focusActionIndex);
-              }
-              setStep(s);
-            }}
-          >
-            {STEP_LABELS[s]}
-          </button>
+          <li key={s.id} className="stepper__item">
+            <button
+              type="button"
+              className={cx("stepper__btn", s.id === step && "is-active", i < stepIndex && "is-done")}
+              aria-current={s.id === step ? "step" : undefined}
+              disabled={i > stepIndex}
+              onClick={() => {
+                if (s.id !== "table") controls.goToAction(payload.focusActionIndex);
+                setStep(s.id);
+              }}
+            >
+              <span className="stepper__num" aria-hidden>
+                {i < stepIndex ? <Check size={14} /> : i + 1}
+              </span>
+              {s.label}
+            </button>
+          </li>
         ))}
-      </nav>
+      </ol>
 
-      <div className="leak-flow__stage">
+      <Card className="leak-flow__stage">
         {step === "table" && (
-          <div className="leak-flow__panel">
-            <p className="leak-flow__detail">{payload.explanation.detail}</p>
-            <p className="leak-flow__fix">
-              <strong>À retenir :</strong> {payload.explanation.fix}
-            </p>
-
-            <div className="leak-flow__hand-meta">
-              <span>{hand.label}</span>
-              <span className="leak-flow__pill">
-                Blinds {hand.blindsBb.small}/{hand.blindsBb.big}
-              </span>
-              <span className="leak-flow__pill leak-flow__pill--street">
-                {STREET_LABELS_UPPER[street]}
-              </span>
-              {hero && (
-                <span className="leak-flow__pill leak-flow__pill--pos">{hero.position}</span>
+          <div className="leak-flow__table">
+            <div className="callout">
+              <div>
+                <p className="callout__text">{payload.explanation.detail}</p>
+                <p className="callout__fix">
+                  <strong>À retenir :</strong> {payload.explanation.fix}
+                </p>
+              </div>
+              {heroCards && (
+                <div className="callout__cards" aria-label="Ta main de départ">
+                  <PokerCard notation={heroCards[0]} size="normal" />
+                  <PokerCard notation={heroCards[1]} size="normal" />
+                </div>
               )}
             </div>
 
-            <HeroHandDisplay cards={heroCards} />
+            <ReplayTableScene street={street} visibleBoard={visibleBoard} pot={pot} players={players} actionBadges={actionBadges} variant="compact" />
 
-            <ReplayTableScene
-              street={street}
-              visibleBoard={visibleBoard}
-              pot={pot}
-              players={players}
-              actionBadges={actionBadges}
-              variant="compact"
-            />
+            <ActionFeed action={currentAction} actor={actor} street={street} actionIndex={actionIndex} totalActions={hand.actions.length} />
 
-            <div className="leak-flow__scrubber" aria-label="Navigation dans le coup">
-              <button
-                type="button"
-                className="leak-flow__scrub-btn"
-                onClick={controls.prevAction}
-                disabled={isFirstAction}
-                aria-label="Action précédente"
-              >
-                ← Préc.
-              </button>
-
-              <div className="leak-flow__scrub-mid">
-                <span className="leak-flow__scrub-count">
-                  Coup {actionIndex + 1} / {hand.actions.length}
-                </span>
-                <input
-                  type="range"
-                  className="leak-flow__scrub-range"
-                  min={0}
-                  max={Math.max(hand.actions.length - 1, 0)}
-                  value={actionIndex}
-                  onChange={(e) => controls.goToAction(Number(e.target.value))}
-                  aria-label="Position dans le coup"
-                />
-                {!atFocusSpot && (
-                  <button
-                    type="button"
-                    className="leak-flow__scrub-spot"
-                    onClick={() => controls.goToAction(payload.focusActionIndex)}
-                  >
-                    Aller au spot →
-                  </button>
-                )}
-                {atFocusSpot && (
-                  <span className="leak-flow__scrub-spot-label">Spot clé</span>
-                )}
-              </div>
-
-              <button
-                type="button"
-                className="leak-flow__scrub-btn"
-                onClick={controls.nextAction}
-                disabled={isLastAction}
-                aria-label="Action suivante"
-              >
-                Suiv. →
-              </button>
+            <div className="leak-flow__scrub">
+              <Button variant="secondary" size="sm" onClick={controls.prevAction} disabled={isFirstAction} icon={<ChevronLeft size={16} aria-hidden />} aria-label="Coup précédent">
+                Précédent
+              </Button>
+              <input
+                type="range"
+                className="slider"
+                min={0}
+                max={Math.max(hand.actions.length - 1, 0)}
+                value={actionIndex}
+                style={{ "--p": `${hand.actions.length > 1 ? (actionIndex / (hand.actions.length - 1)) * 100 : 0}%` } as React.CSSProperties}
+                onChange={(e) => controls.goToAction(Number(e.target.value))}
+                aria-label="Position dans la main"
+              />
+              <Button variant="secondary" size="sm" onClick={controls.nextAction} disabled={isLastAction} aria-label="Coup suivant">
+                Suivant <ChevronRight size={16} aria-hidden />
+              </Button>
+              {atFocusSpot ? (
+                <Badge tone="brand">Le coup clé</Badge>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={() => controls.goToAction(payload.focusActionIndex)}>
+                  Aller au coup clé
+                </Button>
+              )}
             </div>
-
-            <ActionFeed
-              action={currentAction}
-              actor={actor}
-              street={street}
-              actionIndex={actionIndex}
-              totalActions={hand.actions.length}
-            />
           </div>
         )}
 
         {step === "analyse" && (
-          <div className="leak-flow__panel leak-flow__panel--analyse">
-            <p className="leak-flow__panel-intro">
-              Voici pourquoi ce coup te coûte de l’EV — compare les options.
-            </p>
-            <AnalysisPanel
-              street={street}
-              ev={currentEvComparison}
-              tip={currentTip}
-              isHeroDecision={isHeroDecision}
-              simple
-            />
+          <div className="leak-flow__panel">
+            <p className="leak-flow__intro">Voici pourquoi ce coup te coûte de l'EV. Compare les options :</p>
+            <AnalysisPanel street={street} ev={currentEvComparison} tip={currentTip} isHeroDecision={isHeroDecision} />
           </div>
         )}
 
         {step === "ranges" && (
-          <div className="leak-flow__panel leak-flow__panel--ranges">
-            <p className="leak-flow__panel-intro">
-              Ranges suggérées pour ce spot — ce que tu (et l’adversaire) pouvez avoir.
-            </p>
+          <div className="leak-flow__panel">
+            <p className="leak-flow__intro">Les mains que tu (et ton adversaire) pouvez avoir dans cette situation :</p>
             <RangePanel context={rangeContext} />
           </div>
         )}
-      </div>
+      </Card>
 
-      <footer className="leak-flow__footer">
-        <button
-          type="button"
-          className="leak-flow__btn leak-flow__btn--ghost"
-          onClick={goPrev}
-          disabled={stepIndex === 0}
-        >
-          ← Retour
-        </button>
-
-        <span className="leak-flow__progress">
+      <footer className="leak-flow__foot">
+        <Button variant="ghost" onClick={() => setStep(STEPS[Math.max(0, stepIndex - 1)].id)} disabled={stepIndex === 0}>
+          Retour
+        </Button>
+        <span className="leak-flow__progress num">
           Étape {stepIndex + 1} / {STEPS.length}
         </span>
-
         {!isLast ? (
-          <button type="button" className="leak-flow__btn leak-flow__btn--primary" onClick={goNext}>
-            Continuer →
-          </button>
+          <Button variant="primary" onClick={goNext} icon={<ArrowRight size={16} aria-hidden />}>
+            Continuer
+          </Button>
         ) : (
-          <div className="leak-flow__end-actions">
+          <div className="leak-flow__end">
             {hasNextLeak && onNextLeak && (
-              <button
-                type="button"
-                className="leak-flow__btn leak-flow__btn--next"
-                onClick={onNextLeak}
-                title={nextLeakLabel}
-              >
-                Prochain leak →
-              </button>
+              <Button variant="secondary" onClick={onNextLeak} title={nextLeakLabel}>
+                Fuite suivante
+              </Button>
             )}
-            <button type="button" className="leak-flow__btn leak-flow__btn--primary" onClick={onExit}>
-              Terminer ✓
-            </button>
+            <Button variant="primary" onClick={onExit} icon={<Check size={16} aria-hidden />}>
+              Terminer
+            </Button>
           </div>
         )}
       </footer>

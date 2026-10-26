@@ -1,60 +1,80 @@
 /**
- * Positions stadium (table moins « ovale », plus racetrack).
- * Index 0 = Hero. Jetons via --bet-x / --bet-y vers le centre.
+ * Positions des sièges sur la table (en % de la scène, ratio 16/9).
+ * Index 0 = héros (toujours en bas). Les mises sont placées à mi-chemin entre le siège
+ * et le centre : --bet-x / --bet-y sont exprimés en « u » (1 u = 1 % de la largeur de la scène).
  */
 import type { CSSProperties } from "react";
 
-type SeatPos = CSSProperties & {
-  ["--bet-x"]?: string;
-  ["--bet-y"]?: string;
-};
+type Point = readonly [left: number, top: number];
 
-const POSITIONS: Record<number, ReadonlyArray<SeatPos>> = {
+const POSITIONS: Record<number, ReadonlyArray<Point>> = {
   2: [
-    { left: "50%", top: "88%", "--bet-x": "0px", "--bet-y": "-34px" },
-    { left: "50%", top: "12%", "--bet-x": "0px", "--bet-y": "34px" },
+    [50, 86],
+    [50, 14],
   ],
   3: [
-    { left: "50%", top: "88%", "--bet-x": "0px", "--bet-y": "-34px" },
-    { left: "8%", top: "48%", "--bet-x": "36px", "--bet-y": "0px" },
-    { left: "92%", top: "48%", "--bet-x": "-36px", "--bet-y": "0px" },
+    [50, 86],
+    [11, 40],
+    [89, 40],
   ],
   4: [
-    { left: "50%", top: "88%", "--bet-x": "0px", "--bet-y": "-34px" },
-    { left: "7%", top: "50%", "--bet-x": "34px", "--bet-y": "0px" },
-    { left: "50%", top: "12%", "--bet-x": "0px", "--bet-y": "34px" },
-    { left: "93%", top: "50%", "--bet-x": "-34px", "--bet-y": "0px" },
+    [50, 86],
+    [10, 50],
+    [50, 14],
+    [90, 50],
   ],
   5: [
-    { left: "50%", top: "88%", "--bet-x": "0px", "--bet-y": "-34px" },
-    { left: "10%", top: "70%", "--bet-x": "30px", "--bet-y": "-16px" },
-    { left: "12%", top: "22%", "--bet-x": "28px", "--bet-y": "20px" },
-    { left: "88%", top: "22%", "--bet-x": "-28px", "--bet-y": "20px" },
-    { left: "90%", top: "70%", "--bet-x": "-30px", "--bet-y": "-16px" },
+    [50, 86],
+    [14, 68],
+    [20, 20],
+    [80, 20],
+    [86, 68],
   ],
   6: [
-    { left: "50%", top: "89%", "--bet-x": "0px", "--bet-y": "-36px" },
-    { left: "11%", top: "72%", "--bet-x": "32px", "--bet-y": "-14px" },
-    { left: "7%", top: "38%", "--bet-x": "34px", "--bet-y": "4px" },
-    { left: "28%", top: "12%", "--bet-x": "12px", "--bet-y": "32px" },
-    { left: "72%", top: "12%", "--bet-x": "-12px", "--bet-y": "32px" },
-    { left: "89%", top: "72%", "--bet-x": "-32px", "--bet-y": "-14px" },
+    [50, 86],
+    [13, 68],
+    [10, 30],
+    [34, 13],
+    [66, 13],
+    [90, 68],
   ],
 };
 
-export function getVisualSeatPosition(
-  visualSeatIndex: number,
-  numPlayers = 6,
-): CSSProperties {
-  const n = Math.min(6, Math.max(2, numPlayers));
-  const map = POSITIONS[n] ?? POSITIONS[6];
-  return map[visualSeatIndex] ?? { left: "50%", top: "50%" };
+/** Hauteur de la scène exprimée en u (ratio 16/9). */
+const SCENE_HEIGHT_U = 100 * (9 / 16);
+
+export interface SeatVisual extends CSSProperties {
+  ["--bet-x"]?: string;
+  ["--bet-y"]?: string;
 }
 
-export function computeVisualSeatIndex(
-  seatIndex: number,
-  heroSeatIndex: number,
-  numPlayers: number,
-): number {
+/** Point de la mise : on avance du siège vers le centre de la table. */
+function betOffset([left, top]: Point, isHero: boolean): { x: number; y: number } {
+  // Le héros a ses cartes au-dessus de lui : sa mise se place sur le côté, sans les masquer.
+  if (isHero) return { x: 11, y: -6.5 };
+  const k = 0.34;
+  const dx = (50 - left) * k;
+  const dyPct = (48 - top) * k;
+  return { x: dx, y: (dyPct / 100) * SCENE_HEIGHT_U };
+}
+
+export function getSeatPoint(visualSeatIndex: number, numPlayers = 6): Point {
+  const n = Math.min(6, Math.max(2, numPlayers));
+  const map = POSITIONS[n] ?? POSITIONS[6];
+  return map[visualSeatIndex] ?? [50, 50];
+}
+
+export function getVisualSeatPosition(visualSeatIndex: number, numPlayers = 6): SeatVisual {
+  const point = getSeatPoint(visualSeatIndex, numPlayers);
+  const { x, y } = betOffset(point, visualSeatIndex === 0);
+  return {
+    left: `${point[0]}%`,
+    top: `${point[1]}%`,
+    "--bet-x": x.toFixed(2),
+    "--bet-y": y.toFixed(2),
+  };
+}
+
+export function computeVisualSeatIndex(seatIndex: number, heroSeatIndex: number, numPlayers: number): number {
   return (seatIndex - heroSeatIndex + numPlayers) % numPlayers;
 }

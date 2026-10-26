@@ -1,82 +1,52 @@
-import type { CoachTip, EvComparison, Street } from "../../replay.types";
-import { CoachTip as CoachTipView } from "./CoachTip";
+import { Button } from "../../../../ui/Button";
+import { EmptyState } from "../../../../ui/EmptyState";
+import { Play, Target } from "../../../../ui/icons";
+import type { CoachTip, EvComparison, SpotInsight, Street } from "../../replay.types";
 import { EvComparison as EvComparisonView } from "./EvComparison";
-import { ResizablePanel } from "./ResizablePanel";
+import { Verdict } from "./Verdict";
 
 interface AnalysisPanelProps {
   street: Street;
   ev?: EvComparison;
   tip?: CoachTip;
+  spot?: SpotInsight;
   isHeroDecision: boolean;
-  /** Sans poignées de resize — pour le parcours fuite étape par étape */
-  simple?: boolean;
+  /** Absent dans le parcours fuite : pas de bouton de saut. */
+  onJumpToDecision?: () => void;
 }
 
-function EmptyState({ isHeroDecision }: { isHeroDecision: boolean }) {
-  return (
-    <div className="table-review__analysis-empty">
-      <p className="table-review__analysis-empty-title">
-        {isHeroDecision ? "Pas d’analyse pour ce coup" : "Pas encore ton tour"}
-      </p>
-      <p className="table-review__analysis-empty-text">
-        {isHeroDecision
-          ? "Aucune donnée EV sur cette action."
-          : "Avance jusqu’à ton action pour voir le comparatif EV."}
-      </p>
-    </div>
-  );
-}
-
-export function AnalysisPanel({
-  street,
-  ev,
-  tip,
-  isHeroDecision,
-  simple = false,
-}: AnalysisPanelProps) {
+/** Verdict du coach, puis comparaison des options : lecture du haut vers le bas. */
+export function AnalysisPanel({ street, ev, tip, spot, isHeroDecision, onJumpToDecision }: AnalysisPanelProps) {
   if (!ev && !tip) {
     return (
-      <div className="table-review__analysis">
-        <EmptyState isHeroDecision={isHeroDecision} />
-      </div>
-    );
-  }
-
-  if (simple) {
-    return (
-      <div className="table-review__analysis table-review__analysis--simple">
-        {ev && <EvComparisonView comparison={ev} street={street} />}
-        {tip && <CoachTipView tip={tip} />}
+      <div className="analysis">
+        {isHeroDecision ? (
+          <EmptyState icon={<Target size={26} />} title="Pas d'analyse pour ce coup">
+            Le moteur n'a pas d'estimation pour cette action.
+          </EmptyState>
+        ) : (
+          <EmptyState
+            icon={<Target size={26} />}
+            title="Ce n'est pas encore ton tour"
+            actions={
+              onJumpToDecision && (
+                <Button variant="primary" icon={<Play size={16} aria-hidden />} onClick={onJumpToDecision}>
+                  Aller à ma décision
+                </Button>
+              )
+            }
+          >
+            L'analyse apparaît sur tes décisions. Avance dans la main pour la voir.
+          </EmptyState>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="table-review__analysis">
-      {ev && (
-        <ResizablePanel
-          id="ev-comparison"
-          defaultHeight={0}
-          minHeight={180}
-          maxHeight={520}
-          autoSize
-          className="resize-panel--ev"
-        >
-          <EvComparisonView comparison={ev} street={street} />
-        </ResizablePanel>
-      )}
-      {tip && (
-        <ResizablePanel
-          id="coach-tip"
-          defaultHeight={0}
-          minHeight={120}
-          maxHeight={400}
-          autoSize
-          className="resize-panel--coach"
-        >
-          <CoachTipView tip={tip} />
-        </ResizablePanel>
-      )}
+    <div className="analysis">
+      {tip && <Verdict tip={tip} spot={spot} />}
+      {ev && <EvComparisonView comparison={ev} street={street} />}
     </div>
   );
 }

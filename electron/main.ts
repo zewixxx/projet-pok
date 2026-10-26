@@ -1,4 +1,6 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
+import { existsSync } from "fs";
+import os from "os";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, shell, type IpcMainInvokeEvent } from "electron";
 import path from "path";
 import {
   connectProfile,
@@ -6,27 +8,45 @@ import {
   readDataset,
   readStore,
   datasetExists,
+  getAnalyzerRoot,
+  getDatasetDir,
   getDatasetStats,
+  getDownloadsDir,
   updateSyncMeta,
 } from "./winamax/store";
+import { AnalysisService, type AnalysisEvent } from "./analysis/service";
+import { LlmService, type LlmEvent } from "./ai/service";
 import {
   downloadWinamaxExport,
   parseAndValidateUrl,
   unlockLocalWinamaxDat,
 } from "./winamax/download";
-import { parseExportDir } from "./winamax/parse";
+import { parseExportDir, workerFilePath } from "./winamax/parse";
 import { ingestFromWinamaxHistory } from "./winamax/historyIngest";
+import { scanPokerHistories, stageHistoryFiles, type ScanRoots } from "./winamax/findHistories";
 
-const isDev = !app.isPackaged;
+// Serveur Vite + DevTools uniquement avec « electron . --dev » (npm run electron:dev).
+// Sinon (lanceur, installeur) on charge la version construite dans dist/.
+const isDev = !app.isPackaged && process.argv.includes("--dev");
+
+/** Icône de la fenêtre et de la barre des tâches (absente : l'icône par défaut d'Electron est conservée). */
+function windowIcon(): string | undefined {
+  const file = path.join(__dirname, "../build/icon.png");
+  return existsSync(file) ? file : undefined;
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 1100,
-    minHeight: 700,
+    icon: windowIcon(),
+    minWidth: 1024,
+    minHeight: 680,
     title: "Projet-pok",
-    backgroundColor: "#0b1020",
+    // Barre de menus masquée (Alt la fait apparaître) : l'application a sa propre navigation.
+    autoHideMenuBar: true,
+    // Même fond que l'interface, pour éviter tout flash avant le premier affichage.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#080c15" : "#f1f4fa",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -38,7 +58,7 @@ function createWindow(): void {
 
   if (isDev) {
     win.loadURL("http://localhost:5173");
-    win.webContents.openDevTools({ mode: "detach" });
+    if (!process.env.PROJET_POK_NO_DEVTOOLS) win.webContents.openDevTools({ mode: "detach" });
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
@@ -52,6 +72,82 @@ function createWindow(): void {
     void shell.openExternal(details.url);
     return { action: "deny" };
   });
+}
+
+function historyScanRoots(): ScanRoots {
+  const home = app.getPath("home");
+  return {
+    documents: app.getPath("documents"),
+    roaming: app.getPath("appData"),
+    local: process.env.LOCALAPPDATA ?? path.join(home, "AppData", "Local"),
+    downloads: app.getPath("downloads"),
+    desktop: app.getPath("desktop"),
+  };
+}
+
+let analysisService: AnalysisService | null = null;
+let llmService: LlmService | null = null;
+
+function broadcast(event: AnalysisEvent | LlmEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(event.channel, event.payload);
+  }
+}
+
+function getLlmService(): LlmService {
+  if (!llmService) {
+    llmService = new LlmService({
+      modelsDir: path.join(getAnalyzerRoot(), "models"),
+      totalMemGb: os.totalmem() / 1024 ** 3,
+      logicalCpus: os.cpus().length,
+      isEnabled: () => getAnalysisService().getSettings().llmEnabled,
+      emit: broadcast,
+    });
+  }
+  return llmService;
+}
+
+function getAnalysisService(): AnalysisService {
+  if (!analysisService) {
+    const root = getAnalyzerRoot();
+    analysisService = new AnalysisService({
+      datasetDir: getDatasetDir(),
+      analysisDir: path.join(root, "analysis"),
+      settingsFile: path.join(root, "ai-settings.json"),
+      workerFile: workerFilePath(),
+      logicalCpus: os.cpus().length,
+      emit: broadcast,
+      refine: (analysis, hooks) => getLlmService().refine(analysis, hooks),
+    });
+  }
+  return analysisService;
+}
+
+function registerAnalysisIpc(): void {
+  ipcMain.handle("ai:get-settings", () => getAnalysisService().getSettings());
+  ipcMain.handle(
+    "ai:set-settings",
+    (_e: IpcMainInvokeEvent, settings: { powerPercent: number; autoAnalyze: boolean; llmEnabled: boolean }) =>
+      getAnalysisService().setSettings(settings),
+  );
+  ipcMain.handle("llm:status", () => getLlmService().status());
+  ipcMain.handle("llm:download", (_e: IpcMainInvokeEvent, modelId?: string) => getLlmService().startDownload(modelId));
+  ipcMain.handle("llm:cancel-download", () => ({ ok: getLlmService().cancelDownload() }));
+  ipcMain.handle("llm:remove", () => getLlmService().remove());
+  ipcMain.handle("ai:get-hardware", () => ({
+    logicalCpus: os.cpus().length,
+    cpuModel: os.cpus()[0]?.model?.trim() ?? "inconnu",
+    totalMemGb: Math.round((os.totalmem() / 1024 ** 3) * 10) / 10,
+    freeMemGb: Math.round((os.freemem() / 1024 ** 3) * 10) / 10,
+  }));
+  ipcMain.handle("data:list-tournaments", () => getAnalysisService().listTournaments());
+  ipcMain.handle("data:get-tournament", (_e: IpcMainInvokeEvent, id: string) =>
+    getAnalysisService().getHands(String(id ?? "")),
+  );
+  ipcMain.handle("analysis:start", (_e: IpcMainInvokeEvent, id: string) => getAnalysisService().start(String(id ?? "")));
+  ipcMain.handle("analysis:cancel", () => ({ ok: getAnalysisService().cancel() }));
+  ipcMain.handle("analysis:current", () => getAnalysisService().currentTask());
+  ipcMain.handle("analysis:all-leaks", () => getAnalysisService().allLeaks());
 }
 
 function registerWinamaxIpc(): void {
@@ -309,6 +405,51 @@ function registerWinamaxIpc(): void {
     }
   });
 
+  ipcMain.handle("winamax:scan-histories", () => {
+    try {
+      const found = scanPokerHistories(historyScanRoots()).map((source) => ({
+        room: source.room,
+        account: source.account,
+        dir: source.dir,
+        fileCount: source.fileCount,
+        kind: source.kind,
+      }));
+      return { ok: true, found };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err), found: [] };
+    }
+  });
+
+  ipcMain.handle("winamax:import-scanned", async () => {
+    try {
+      const found = scanPokerHistories(historyScanRoots()).filter(
+        (source) => source.kind === "txt" && source.fileCount > 0,
+      );
+      if (found.length === 0) {
+        return { ok: false, error: "Aucun historique .txt trouvé dans les dossiers habituels des clients." };
+      }
+      const stagingDir = path.join(getDownloadsDir(), `scan-import-${Date.now()}`);
+      const copied = stageHistoryFiles(found, stagingDir);
+      if (copied === 0) {
+        return { ok: false, error: "Les dossiers trouvés ne contiennent aucun fichier .txt lisible." };
+      }
+      const parsed = await parseExportDir(stagingDir, "local-scan");
+      if (!parsed.ok) {
+        return { ok: false, error: parsed.error ?? "Échec de la lecture des historiques", copied };
+      }
+      updateSyncMeta({ pendingDatPath: null, pendingDatAt: null });
+      const rooms = [...new Set(found.map((source) => source.room))].join(", ");
+      return {
+        ok: true,
+        message: `${copied} fichiers importés (${rooms}).`,
+        stats: parsed.stats,
+        unavailable: parsed.unavailable ?? [],
+      };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle("winamax:get-dataset", () => {
     return readDataset();
   });
@@ -326,6 +467,7 @@ function registerWinamaxIpc(): void {
 
 app.whenReady().then(() => {
   registerWinamaxIpc();
+  registerAnalysisIpc();
   createWindow();
 
   app.on("activate", () => {

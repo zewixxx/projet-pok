@@ -1,79 +1,76 @@
-import BurgerNav from "./components/BurgerNav";
-import { LEAKS } from "./features/dashboard/data/dashboardData";
-import { getNextLeak } from "./features/dashboard/data/sessionDebrief";
-import ImportBanner from "./features/import/components/ImportBanner";
-import DashboardPage from "./features/dashboard/DashboardPage";
-import HandsPanel from "./features/review/components/HandsPanel";
-import LeakReviewFlow from "./features/review/components/LeakReviewFlow";
-import PokerTableReview from "./features/review/components/PokerTableReview";
-import TournamentSelector from "./features/review/components/TournamentSelector";
-import WinamaxAnalyzerPage from "./features/winamax-analyzer/components/WinamaxAnalyzerPage";
+import { useEffect, useState } from "react";
+import DashboardPage from "./features/dashboard/HomePage";
+import ImportPage from "./features/winamax-analyzer/components/ImportPage";
+import AiSettingsPage from "./features/ai/components/AiSettingsPage";
+import ReviewPage from "./features/review/ReviewPage";
 import { useAppNavigation } from "./hooks/useAppNavigation";
+import { HelpDialog } from "./shell/HelpDialog";
+import { Sidebar, type EngineState } from "./shell/Sidebar";
+import { isTypingTarget } from "./features/review/shortcuts";
 
 export default function App() {
   const nav = useAppNavigation();
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // « ? » ouvre l'aide, partout dans l'application.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+      e.preventDefault();
+      setHelpOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const { remote } = nav;
+  const running = remote.status === "running";
+  const progress = remote.progress;
+  const engine: EngineState = {
+    running,
+    pct: progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : undefined,
+    tournamentName: remote.tournaments?.find((t) => t.id === progress?.tournamentId)?.name,
+    phase: progress?.phase === "texte" ? "Rédaction des conseils" : "Calcul des spots",
+  };
 
   return (
-    <div className="app-shell">
-      <header className="app-nav">
-        <div className="app-nav__brand">
-          <span className="app-nav__logo" aria-hidden>
-            🎴
-          </span>
-          <span className="app-nav__name">Projet-pok</span>
-        </div>
+    <div className="app">
+      <a className="skip-link" href="#contenu">
+        Aller au contenu
+      </a>
 
-        <BurgerNav activePage={nav.activePage} onNavigate={nav.goToPage} />
+      <Sidebar
+        activePage={nav.activePage}
+        onNavigate={nav.goToPage}
+        onOpenHelp={() => setHelpOpen(true)}
+        engine={engine}
+        engineAvailable={remote.available}
+      />
 
-        <div className="app-nav__spacer" />
-      </header>
-
-      <ImportBanner />
-
-      <main className={`app-content${nav.activePage === "review" ? " app-content--wide" : ""}`}>
-        {nav.activePage === "dashboard" && (
-          <DashboardPage onSelectLeak={nav.openLeakReview} />
+      <main className="app__main" id="contenu" tabIndex={-1}>
+        {nav.activePage === "home" && (
+          <DashboardPage
+            data={nav.home}
+            onReviewTournament={(id) => nav.openTournament(id)}
+            onOpenLeak={nav.openLeak}
+            onImport={() => nav.goToPage("import")}
+            onDemoReview={nav.openDemoReview}
+          />
         )}
-
-        {nav.activePage === "winamax" && <WinamaxAnalyzerPage />}
 
         {nav.activePage === "review" && (
-          <>
-            {!nav.inLeakMode && (
-              <TournamentSelector
-                tournaments={nav.tournaments}
-                selectedId={nav.selectedTournamentId}
-                onSelect={nav.selectTournament}
-              />
-            )}
-            {nav.loading && !nav.inLeakMode ? (
-              <div className="import-loading">Chargement des mains…</div>
-            ) : nav.inLeakMode && nav.leakReview ? (
-              <LeakReviewFlow
-                key={nav.leakReview.leak.id}
-                payload={nav.leakReview}
-                onExit={nav.exitLeakReview}
-                onNextLeak={nav.openNextLeak}
-                hasNextLeak={LEAKS.length > 1}
-                nextLeakLabel={getNextLeak(nav.leakReview.leak.id)?.description}
-              />
-            ) : (
-              <div className="review-layout">
-                <PokerTableReview
-                  key={nav.selectedTournamentId}
-                  hands={nav.activeHands}
-                  focusHandId={nav.focusHandId}
-                />
-                <HandsPanel
-                  hands={nav.reviewHands.length > 0 ? nav.reviewHands : []}
-                  activeHandId={nav.focusHandId}
-                  onSelectHand={nav.setFocusHandId}
-                />
-              </div>
-            )}
-          </>
+          <ReviewPage nav={nav} onImport={() => nav.goToPage("import")} onOpenSettings={() => nav.goToPage("settings")} />
         )}
+
+        {nav.activePage === "import" && (
+          <ImportPage onDataChanged={remote.refreshTournaments} onOpenReview={() => nav.goToPage("review")} />
+        )}
+
+        {nav.activePage === "settings" && <AiSettingsPage />}
       </main>
+
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   );
 }

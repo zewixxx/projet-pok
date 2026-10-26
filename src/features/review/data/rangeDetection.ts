@@ -112,6 +112,26 @@ function resolveActionMapping(
 // ─── Villain range computation ────────────────────────────────────────────────
 
 /**
+ * Range déduite par le moteur d'analyse. Elle n'existe qu'aux décisions du héros :
+ * pour une autre action, on prend la prochaine décision du héros (qui inclut cette
+ * action), sinon la dernière.
+ */
+export function villainRangeFromEngine(hand: ReplayHand, actionIndex: number): VillainRangeData | null {
+  if (!hand.analyzed || !hand.spots) return null;
+  const indexes = Object.keys(hand.spots).map(Number).sort((a, b) => a - b);
+  const pick = indexes.find((i) => i >= actionIndex) ?? indexes[indexes.length - 1];
+  const spot = pick != null ? hand.spots[pick] : undefined;
+  if (!spot?.villainRange || !spot.villainId) return null;
+  return {
+    playerId: spot.villainId,
+    playerLabel: spot.villainPosition ?? "Adversaire",
+    label: spot.villainRangeLabel ?? "Range estimée",
+    pct: spot.villainRangePct ?? "",
+    probs: spot.villainRange,
+  };
+}
+
+/**
  * Computes villain's current range as a probability map by sequentially
  * multiplying the frequency of each action they took against the matching
  * pre-defined strategy grid.
@@ -125,6 +145,10 @@ export function computeVillainRangeData(
   upToIndex:  number,
   heroId:     string,
 ): VillainRangeData | null {
+  // Main analysée par le moteur : on affiche ses ranges déduites plutôt que la grille de référence.
+  const fromEngine = villainRangeFromEngine(hand, upToIndex);
+  if (fromEngine) return fromEngine;
+
   // Find the main villain: prefer raisers over passive callers, exclude hero & vB (3rd villain)
   const meaningful = hand.actions
     .slice(0, upToIndex + 1)

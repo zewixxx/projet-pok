@@ -7,7 +7,7 @@ describe("resolveHeroAnalysis", () => {
     const hand = MOCK_HANDS[0];
     const { tip, ev } = resolveHeroAnalysis(hand, 3);
 
-    expect(tip?.headline).toContain("3bet");
+    expect(tip?.headline).toContain("relance");
     expect(ev?.options.some(o => o.isPlayed)).toBe(true);
   });
 

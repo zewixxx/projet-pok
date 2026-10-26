@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
-import type { AnalyzerDataset } from "../types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AnalyzerDataset, FoundHistorySource } from "../types";
 import { buildAnalysisReport } from "../utils/report";
 
 type SyncState = "idle" | "syncing" | "done" | "error";
 
-export function useWinamaxAnalyzer() {
+interface UseWinamaxAnalyzerOptions {
+  /** Appelé quand les données importées changent (nouvel import, déchiffrement…). */
+  onDatasetChanged?: () => void;
+}
+
+export function useWinamaxAnalyzer(options: UseWinamaxAnalyzerOptions = {}) {
   const api = typeof window !== "undefined" ? window.projetPok?.winamax : undefined;
   const isElectron = Boolean(api);
+  const onChangedRef = useRef(options.onDatasetChanged);
+  onChangedRef.current = options.onDatasetChanged;
+  const firstDataset = useRef(true);
 
   const [loading, setLoading] = useState(true);
   const [pseudo, setPseudo] = useState("");
@@ -23,14 +31,14 @@ export function useWinamaxAnalyzer() {
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [pendingDat, setPendingDat] = useState(false);
   const [pendingDatPath, setPendingDatPath] = useState<string | null>(null);
+  const [foundHistories, setFoundHistories] = useState<FoundHistorySource[] | null>(null);
+  const [scanState, setScanState] = useState<SyncState>("idle");
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!api) {
+      // Navigateur : la page d'import explique elle-même qu'il faut l'application de bureau.
       setLoading(false);
-      setUnavailable([
-        "Winamax Analyzer nécessite l’app desktop Electron (`npm run electron:dev`).",
-        "Les exports email Winamax sont des .dat chiffrés : il faut le mot de passe de l’email.",
-      ]);
       return;
     }
     setLoading(true);
@@ -56,6 +64,35 @@ export function useWinamaxAnalyzer() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Prévient l'application quand le jeu de données change (hors premier rendu).
+  useEffect(() => {
+    if (firstDataset.current) {
+      firstDataset.current = false;
+      return;
+    }
+    onChangedRef.current?.();
+  }, [dataset]);
+
+  const scanHistories = useCallback(async () => {
+    if (!api?.scanHistories) return;
+    setScanState("syncing");
+    setScanError(null);
+    try {
+      const res = await api.scanHistories();
+      if (!res.ok) throw new Error(res.error ?? "Recherche impossible.");
+      setFoundHistories(res.found ?? []);
+      setScanState("done");
+    } catch (err) {
+      setScanState("error");
+      setScanError(err instanceof Error ? err.message : String(err));
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (!api?.scanHistories) return;
+    void scanHistories();
+  }, [api, scanHistories]);
 
   const connect = async () => {
     if (!api) return;
@@ -164,6 +201,31 @@ export function useWinamaxAnalyzer() {
     }
   };
 
+  const importScanned = async () => {
+    if (!api?.importScanned) return;
+    setSyncState("syncing");
+    setError(null);
+    setSyncInfo(null);
+    try {
+      const res = await api.importScanned();
+      if (!res.ok) {
+        setSyncState("error");
+        setError(res.error ?? "Import automatique échoué");
+        return;
+      }
+      setUnavailable(res.unavailable ?? []);
+      setPendingDat(false);
+      setSyncInfo(res.message ?? "Historiques importés");
+      const data = await api.getDataset();
+      setDataset(data);
+      setLastSyncAt(new Date().toISOString());
+      setSyncState("done");
+    } catch (err) {
+      setSyncState("error");
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const importHistoryDir = async () => {
     if (!api) return;
     setSyncState("syncing");
@@ -254,12 +316,17 @@ export function useWinamaxAnalyzer() {
     syncInfo,
     pendingDat,
     pendingDatPath,
+    foundHistories,
+    scanState,
+    scanError,
     report,
     connect,
     disconnect,
     sync,
     unlockLocalDat,
     importHistoryDir,
+    scanHistories,
+    importScanned,
     copyPassword,
     revealDat,
     ingestAfterImport,

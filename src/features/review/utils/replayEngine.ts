@@ -24,18 +24,24 @@ function postBlinds(
   blinds: { small: number; big: number },
   streetInvested: Record<string, number>,
   totalInvested: Record<string, number>,
+  anteBb = 0,
 ): number {
   let streetMax = 0;
   const headsUp = players.length === 2;
 
+  // L'ante va dans le pot sans compter comme mise de la rue.
+  if (anteBb > 0) {
+    for (const p of players) totalInvested[p.id] = anteBb;
+  }
+
   for (const p of players) {
     if (p.position === "SB" || (headsUp && p.position === "BTN")) {
       streetInvested[p.id] = blinds.small;
-      totalInvested[p.id]  = blinds.small;
+      totalInvested[p.id]  = (totalInvested[p.id] ?? 0) + blinds.small;
       streetMax = Math.max(streetMax, blinds.small);
     } else if (p.position === "BB") {
       streetInvested[p.id] = blinds.big;
-      totalInvested[p.id]  = blinds.big;
+      totalInvested[p.id]  = (totalInvested[p.id] ?? 0) + blinds.big;
       streetMax = Math.max(streetMax, blinds.big);
     }
   }
@@ -89,7 +95,7 @@ export function computeReplayState(
   const totalInvested  = emptyRecord(ids);
   const foldedIds      = new Set<string>();
 
-  let streetMax    = postBlinds(hand.players, hand.blindsBb, streetInvested, totalInvested);
+  let streetMax    = postBlinds(hand.players, hand.blindsBb, streetInvested, totalInvested, hand.anteBb ?? 0);
   let currentStreet: Street = "preflop";
 
   for (let i = 0; i <= actionIndex; i++) {

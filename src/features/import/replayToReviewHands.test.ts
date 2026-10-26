@@ -6,6 +6,6 @@ describe("replayHandsToReviewHands", () => {
   it("calcule un impact EV positif depuis coachTips / evComparisons (Records)", () => {
     const [review] = replayHandsToReviewHands(MOCK_HANDS, "t1", "2026-05-01");
     expect(review.evImpact).toBeGreaterThan(0);
-    expect(review.summary).toMatch(/3bet|Beau coup/i);
+    expect(review.summary).toMatch(/relance/i);
   });
 });

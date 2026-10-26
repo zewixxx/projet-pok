@@ -1,3 +1,4 @@
+import type { AiApi } from "../ai/types";
 import type { SessionPoint } from "../dashboard/types";
 
 export interface AnalyzerSession extends SessionPoint {}
@@ -12,6 +13,14 @@ export interface AnalyzerTournament {
   buyInEuros: number;
   prizeEuros?: number;
   fileKey: string;
+}
+
+export interface FoundHistorySource {
+  room: string;
+  account: string | null;
+  dir: string;
+  fileCount: number;
+  kind: "txt" | "dat";
 }
 
 export interface AnalyzerDataset {
@@ -144,6 +153,18 @@ declare global {
           stats?: AnalyzerDataset["stats"];
           unavailable?: string[];
         }>;
+        scanHistories: () => Promise<{
+          ok: boolean;
+          error?: string;
+          found: FoundHistorySource[];
+        }>;
+        importScanned: () => Promise<{
+          ok: boolean;
+          error?: string;
+          message?: string;
+          stats?: AnalyzerDataset["stats"];
+          unavailable?: string[];
+        }>;
         copyPassword: (password: string) => Promise<{ ok: boolean; error?: string }>;
         revealDat: () => Promise<{ ok: boolean; datPath?: string; error?: string }>;
         ingestAfterImport: () => Promise<{
@@ -156,6 +177,7 @@ declare global {
         getDataset: () => Promise<AnalyzerDataset | null>;
         openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
       };
+      ai: AiApi;
     };
   }
 }

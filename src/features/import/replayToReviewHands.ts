@@ -47,6 +47,29 @@ function computeEvImpact(hand: ReplayHand): { evImpact: number; summary: string 
   let worst = "";
   let best = "";
 
+  // Main analysée par le moteur : on compte la perte réelle de chaque erreur, une seule fois.
+  if (hand.analyzed && hand.spots) {
+    let worstLoss = 0;
+    for (const [key, spot] of Object.entries(hand.spots)) {
+      const tip = hand.coachTips?.[Number(key)];
+      if (!tip) continue;
+      if (tip.quality === "mistake") {
+        impact -= spot.evLossBb;
+        if (spot.evLossBb >= worstLoss) {
+          worstLoss = spot.evLossBb;
+          worst = tip.headline;
+        }
+      } else if (tip.quality === "good") {
+        impact += 0.15;
+        best = tip.headline;
+      }
+    }
+    const rounded = Math.round(impact * 100) / 100;
+    const summary =
+      rounded <= -0.5 ? worst || "Erreur coûteuse" : rounded >= 0.5 ? best || "Beau coup" : "Spot neutre";
+    return { evImpact: rounded, summary };
+  }
+
   for (const tip of Object.values(hand.coachTips ?? {})) {
     impact += scoreTip(tip);
     if (tip.quality === "mistake") {

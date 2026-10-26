@@ -1,68 +1,76 @@
 import { useEffect, useState } from "react";
+import { Segmented } from "../../../../ui/Segmented";
+import { Term } from "../../../../ui/Term";
 import { RANGE_SPOTS } from "../../data/rangeData";
 import type { RangeContext } from "../../data/rangeDetection";
 import RangeMatrix from "./RangeMatrix";
 
 interface RangePanelProps {
   context: RangeContext;
-  /** Mode sidebar : une seule matrice, moins de chrome */
-  compact?: boolean;
 }
 
-export default function RangePanel({ context, compact = false }: RangePanelProps) {
-  const { spot, heroCombo, spotIndex, villainData } = context;
+type View = "villain" | "reference";
 
-  const [heroIdx, setHeroIdx] = useState(spotIndex);
+export default function RangePanel({ context }: RangePanelProps) {
+  const { spot, heroCombo, spotIndex, villainData } = context;
+  const hasVillain = Boolean(villainData && !villainData.label.includes("foldé"));
+
+  const [view, setView] = useState<View>(hasVillain ? "villain" : "reference");
+  const [refIdx, setRefIdx] = useState(spotIndex);
+
+  // Quand la situation change (autre coup), on revient sur la vue la plus utile.
   useEffect(() => {
-    setHeroIdx(spotIndex);
-  }, [spotIndex]);
-  const heroSpot = RANGE_SPOTS[heroIdx] ?? RANGE_SPOTS[0];
+    setView(hasVillain ? "villain" : "reference");
+    setRefIdx(spotIndex);
+  }, [hasVillain, spotIndex]);
+
+  const refSpot = RANGE_SPOTS[refIdx] ?? spot;
 
   return (
-    <div className={`rp${compact ? " rp--compact" : ""}`}>
-      <div className="rp__tabs">
-        {!compact && <span className="rp__tabs-label">Situation :</span>}
-        {RANGE_SPOTS.map((s, i) => (
-          <button
-            key={s.id}
-            className={[
-              "rp__tab",
-              i === heroIdx ? "rp__tab--active" : "",
-              i === spotIndex ? "rp__tab--detected" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => setHeroIdx(i)}
-            title={s.description}
-          >
-            {s.label}
-            {i === spotIndex && i !== heroIdx && <span className="rp__tab-dot" />}
-          </button>
-        ))}
-      </div>
+    <div className="ranges">
+      <Segmented<View>
+        label="Type de range"
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "villain", label: "Adversaire (estimée)" },
+          { value: "reference", label: "Référence" },
+        ]}
+      />
 
-      <div className={`rp__dual${compact ? " rp__dual--compact" : ""}`}>
-        <RangeMatrix variant="strategy" spot={heroSpot} heroCombo={heroCombo} />
-
-        {!compact &&
-          (villainData && !villainData.label.includes("foldé") ? (
-            <RangeMatrix
-              variant="presence"
-              probs={villainData.probs}
-              label={villainData.label}
-              pct={villainData.pct}
-              heroCombo={heroCombo}
-            />
-          ) : (
-            <div className="rp__empty">
-              <span className="rp__empty-text">
-                {villainData?.label.includes("foldé")
-                  ? `${villainData.playerLabel} a fold`
-                  : "En attendant l’adversaire…"}
-              </span>
-            </div>
-          ))}
-      </div>
+      {view === "villain" ? (
+        hasVillain && villainData ? (
+          <>
+            <p className="ranges__intro">
+              Mains que le moteur juge possibles pour <strong>{villainData.playerLabel}</strong> d'après ses actions. C'est une{" "}
+              <Term id="range">range</Term> estimée, pas une certitude.
+            </p>
+            <RangeMatrix variant="presence" probs={villainData.probs} label={villainData.label} pct={villainData.pct} heroCombo={heroCombo} />
+          </>
+        ) : (
+          <p className="ranges__empty">
+            {villainData?.label.includes("foldé")
+              ? `${villainData.playerLabel} s'est couché : il n'a plus de range.`
+              : "La range adverse apparaît sur tes décisions, une fois que l'adversaire a agi."}
+          </p>
+        )
+      ) : (
+        <>
+          <label className="field">
+            <span className="field__label">Situation de référence</span>
+            <select className="input" value={refIdx} onChange={(e) => setRefIdx(Number(e.target.value))}>
+              {RANGE_SPOTS.map((s, i) => (
+                <option key={s.id} value={i}>
+                  {s.label}
+                  {i === spotIndex ? " (situation actuelle)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="ranges__intro">Ranges d'ouverture et de défense indicatives, à comparer avec ta main.</p>
+          <RangeMatrix variant="strategy" spot={refSpot} heroCombo={heroCombo} />
+        </>
+      )}
     </div>
   );
 }

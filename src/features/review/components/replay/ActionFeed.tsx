@@ -1,5 +1,7 @@
+import { cx } from "../../../../ui/cx";
+import { STREET_LABELS } from "../../replay.constants";
 import type { HandAction, ReplayPlayer, Street } from "../../replay.types";
-import { ACTION_LABELS, STREET_LABELS } from "../../replay.constants";
+import { actionSentence } from "../../utils/actionText";
 
 interface ActionFeedProps {
   action: HandAction;
@@ -9,41 +11,23 @@ interface ActionFeedProps {
   totalActions: number;
 }
 
-const ACTION_COLOR: Record<string, string> = {
-  fold: "action-feed--fold",
-  check: "action-feed--check",
-  call: "action-feed--call",
-  bet: "action-feed--bet",
-  raise: "action-feed--raise",
-  allin: "action-feed--allin",
-};
-
+/** Légende de l'action en cours, lue à voix haute par les lecteurs d'écran. */
 export function ActionFeed({ action, actor, street, actionIndex, totalActions }: ActionFeedProps) {
-  const label = ACTION_LABELS[action.type] ?? action.type;
-  const amount = action.amountBb != null ? ` ${action.amountBb.toFixed(1)} bb` : "";
-  const colorMod = ACTION_COLOR[action.type] ?? "";
-
+  const sentence = actionSentence(action, actor?.name ?? "?", Boolean(actor?.isHero));
   return (
     <div
-      className={`action-feed ${colorMod}`}
+      className={cx("caption", `caption--${action.type}`)}
       role="status"
       aria-live="polite"
       key={`${actionIndex}-${action.type}-${action.playerId}`}
     >
-      <span className="action-feed__street">{STREET_LABELS[street]}</span>
-      <span className="action-feed__sep" aria-hidden="true">
-        →
+      <span className="caption__street">{STREET_LABELS[street]}</span>
+      <span className="caption__text">
+        <strong>{sentence.subject}</strong> {sentence.verb}
+        {sentence.amount && <strong className="num"> {sentence.amount}</strong>}
+        {actor && !actor.isHero && <span className="caption__pos"> · {actor.position}</span>}
       </span>
-      <span className="action-feed__text">
-        <strong>{actor?.isHero ? "TOI" : (actor?.name ?? "?")}</strong>
-        {" "}
-        {label}
-        {amount}
-      </span>
-      <span
-        className="action-feed__counter"
-        aria-label={`Action ${actionIndex + 1} sur ${totalActions}`}
-      >
+      <span className="caption__count num" aria-label={`Coup ${actionIndex + 1} sur ${totalActions}`}>
         {actionIndex + 1}/{totalActions}
       </span>
     </div>

@@ -1,5 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
-import type { CoachTip, EvComparison, HandAction, ReplayHand, ReplayPlayerState, Street } from "../replay.types";
+import type {
+  CoachTip,
+  EvComparison,
+  HandAction,
+  ReplayHand,
+  ReplayPlayerState,
+  SpotInsight,
+  Street,
+} from "../replay.types";
 import { computeVisualSeatIndex } from "../utils/seatLayout";
 import { computeReplayState, effectiveStackBb } from "../utils/replayEngine";
 import { resolveHeroAnalysis } from "../utils/generateHeroAnalysis";
@@ -18,6 +26,7 @@ export interface ReplaySnapshot {
   players: ReplayPlayerState[];
   currentTip: CoachTip | undefined;
   currentEvComparison: EvComparison | undefined;
+  currentSpot: SpotInsight | undefined;
   isHeroDecision: boolean;
   isFirstAction: boolean;
   isLastAction: boolean;
@@ -32,6 +41,8 @@ export interface ReplayControls {
   nextHand: () => void;
   prevHand: () => void;
   goToHand: (index: number) => void;
+  /** Saute directement Ã  un coup prÃ©cis d'une main prÃ©cise. */
+  goToSpot: (handIndex: number, actionIndex: number) => void;
   reset: () => void;
 }
 
@@ -129,6 +140,16 @@ export function useReplay(
     [jumpToHand],
   );
 
+  const goToSpot = useCallback(
+    (handIdx: number, actionIdx: number) => {
+      const h = Math.max(0, Math.min(handIdx, hands.length - 1));
+      const maxAction = Math.max((hands[h]?.actions.length ?? 1) - 1, 0);
+      setHandIndex(h);
+      setActionIndex(Math.max(0, Math.min(actionIdx, maxAction)));
+    },
+    [hands],
+  );
+
   const reset = useCallback(() => jumpToHand(0), [jumpToHand]);
 
   if (!hand || !currentAction) {
@@ -145,13 +166,14 @@ export function useReplay(
         players: [],
         currentTip: undefined,
         currentEvComparison: undefined,
+        currentSpot: undefined,
         isHeroDecision: false,
         isFirstAction: true,
         isLastAction: true,
         isFirstHand: true,
         isLastHand: hands.length <= 1,
       },
-      { nextAction, prevAction, goToAction, nextHand, prevHand, goToHand, reset },
+      { nextAction, prevAction, goToAction, nextHand, prevHand, goToHand, goToSpot, reset },
     ];
   }
 
@@ -168,12 +190,13 @@ export function useReplay(
       players,
       currentTip,
       currentEvComparison,
+      currentSpot: hand.spots?.[actionIndex],
       isHeroDecision,
       isFirstAction: actionIndex === 0,
       isLastAction: actionIndex === hand.actions.length - 1,
       isFirstHand: handIndex === 0,
       isLastHand: handIndex === hands.length - 1,
     },
-    { nextAction, prevAction, goToAction, nextHand, prevHand, goToHand, reset },
+    { nextAction, prevAction, goToAction, nextHand, prevHand, goToHand, goToSpot, reset },
   ];
 }
